@@ -1,0 +1,658 @@
+---
+title: "HGAS results"
+author: "Emily Smenderovac"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+## Load libraries 
+library(readxl)
+library(lme4)
+## install.packages("INLA",repos=c(getOption("repos"),INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
+library(INLA)
+library(effects)
+library(sjPlot)
+library(rstanarm)
+library(tidyverse)
+```
+
+# Data Characterization
+
+```{r hg-as-data}
+
+### Units for both contaminants are ug/g wet weight
+## Read in the mercury data
+hg <- readxl::read_excel("./data/Ontario Inland 3 Species Hg 2008-2020-12-16.xlsx") %>% 
+  ## filter data to only fish from lakes, produced by MECP, Walleye, Laketrout and Northern Pike and only ones that are from dorsal filet samples
+  filter(SPECIES_NAME %in% c("Lake Trout", "Walleye", "Northern Pike"), 
+         PORTION_TYPE_DESC %in% c("SKINLESS, BONELESS FILLET (STANDARD MOE DORSAL FILLET)", 
+                     "SKINLESS, BONELESS FILLET PLUG (SKIN-OFF)")) %>% 
+  mutate(CONTAMINANT = "Hg", WEIGHT_GRAM_LOG = log(WEIGHT_GRAM), LENGTH_CM_LOG = log(LENGTH_CM), 
+         VALUE_LOG = log(VALUE)) %>% 
+  dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, VALUE, VALUE_LOG, LENGTH_CM, LENGTH_CM_LOG, WEIGHT_GRAM, WEIGHT_GRAM_LOG) %>% 
+  filter(!is.na(LENGTH_CM_LOG), 
+         !is.na(WEIGHT_GRAM_LOG))
+
+## Read in the Arsenic data
+As <- read.csv("./data/Fish_As_2021.12.01.csv")%>% 
+  ## filter data to only fish from lakes, produced by MECP, Walleye, Laketrout and Northern Pike and only ones that are from dorsal filet samples
+  filter(System_Type == "Lake",
+         Data_source == "MECP", 
+         Taxon %in% c("LT", "WALL", "NP"), 
+         PORTION_TYPE_DESC %in% c("SKINLESS, BONELESS FILLET (STANDARD MOE DORSAL FILLET)", 
+                     "SKINLESS, BONELESS FILLET PLUG (SKIN-OFF)")) %>% 
+  mutate(VALUE = As_ug_ww, LENGTH_CM = TLEN/10, WEIGHT_GRAM = RWT,
+         WEIGHT_GRAM_LOG = log(RWT), LENGTH_CM_LOG = log(LENGTH_CM), 
+         VALUE_LOG = log(VALUE), WATERBODY_CODE = Waterbody, SPECIES_NAME = ifelse(Taxon=="NP", "Northern Pike", ifelse(Taxon == "WALL", "Walleye", "Lake Trout")), 
+         SAMPLE_YEAR = as.factor(as.numeric(sapply(strsplit(Sampling_Date, split = "-"), function(x){x[[1]]}))),
+         CONTAMINANT = "As") %>% 
+  dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, VALUE, VALUE_LOG, LENGTH_CM, LENGTH_CM_LOG, WEIGHT_GRAM, WEIGHT_GRAM_LOG) %>%
+  filter(!is.na(LENGTH_CM_LOG), 
+         !is.na(WEIGHT_GRAM_LOG))
+
+## Set seed to make analysis repeatable
+set.seed(434)
+
+all_contaminants <- rbind(hg, As) %>%
+  mutate(EVENT = paste(WATERBODY_CODE, SAMPLE_YEAR, sep = "_")) %>%
+  ### Add a split for test/train data
+  group_by() %>%
+  mutate(test_train = sample(c(TRUE, FALSE), size = n(), replace = T)) %>%
+  mutate(VALUE_LOG_TEST = ifelse(!test_train, VALUE_LOG, NA), 
+         VALUE_LOG_TRAIN = ifelse(test_train, VALUE_LOG, NA)) %>%
+  group_by(CONTAMINANT, SAMPLE_YEAR, WATERBODY_CODE, SPECIES_NAME) %>% 
+  mutate(N_fish = sum(!is.na(VALUE_LOG_TRAIN)))
+
+
+fish_amounts <- all_contaminants %>% group_by(CONTAMINANT) %>% summarize(total_fish = n())
+
+```
+In total, the final dataset we used included [Hg] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "Hg"]` fish and [As] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "As"]` fish. This dataset was randomly sampled to create test and train datasets (Tables \@ref(tab:sampling-events-summary-train), \@ref(tab:sampling-events-summary-test)) 
+
+
+```{r sampling-events-summary-train}
+
+all_contaminants %>% 
+  filter(!is.na(VALUE_LOG_TRAIN)) %>%
+  group_by(CONTAMINANT, SAMPLE_YEAR, WATERBODY_CODE, SPECIES_NAME) %>% 
+  summarize(totalfish = n()) %>%
+  group_by(CONTAMINANT, SPECIES_NAME) %>%
+  summarize(`Total number of events` = n(), 
+            `Events with more than one fish` = sum(totalfish > 1),
+            `Events with at least 5 fish` = sum(totalfish > 4),
+            `Number of events excluded from SER` = sum(totalfish < 5),
+            `Number of lakes excluded from SER` = length(unique(WATERBODY_CODE[!WATERBODY_CODE %in% WATERBODY_CODE[totalfish > 4]])), 
+            #`Lakes excluded from SER` = str_c(unique(WATERBODY_CODE[!WATERBODY_CODE %in% WATERBODY_CODE[totalfish > 4]]), collapse = ", ")
+            `Total number of unique lakes` = length(unique(WATERBODY_CODE))) %>% 
+  knitr::kable(caption = "Summary of events (unique year and lake combinations) for each contaminant and species in the train dataset used in this analysis.")
+
+```
+ 
+```{r sampling-events-summary-test}
+
+lakes_SER <- all_contaminants %>% 
+  filter(!is.na(VALUE_LOG_TRAIN)) %>%
+  group_by(CONTAMINANT, SAMPLE_YEAR, WATERBODY_CODE, SPECIES_NAME) %>% 
+  summarize(totalfish = n()) %>%
+  group_by(CONTAMINANT, SPECIES_NAME) %>%
+  summarize(`Lakes in SER` = str_c(unique(WATERBODY_CODE[WATERBODY_CODE %in% WATERBODY_CODE[totalfish > 4]]), collapse = ", "))
+
+all_contaminants %>% left_join(lakes_SER) %>%
+  group_by(WATERBODY_CODE) %>% 
+  mutate(SER_excluded = !grepl(unique(WATERBODY_CODE), `Lakes in SER`)) %>%
+  filter(!is.na(VALUE_LOG_TEST)) %>%
+  group_by(CONTAMINANT, SAMPLE_YEAR, WATERBODY_CODE, SPECIES_NAME) %>% 
+  summarize(totalfish = n(), SER_excluded = unique(SER_excluded)) %>% 
+  group_by(CONTAMINANT, SPECIES_NAME) %>%
+  summarize(`Total number of events` = n(), 
+            `Events with more than one fish` = sum(totalfish > 1),
+            `Events with at least 5 fish` = sum(totalfish > 4),
+            `Number of events excluded from SER` = sum(SER_excluded),
+            `Number of lakes excluded from SER` = length(unique(WATERBODY_CODE[SER_excluded])), 
+            #`Lakes excluded from SER` = str_c(unique(WATERBODY_CODE[!WATERBODY_CODE %in% WATERBODY_CODE[totalfish > 4]]), collapse = ", ")
+            `Total number of unique lakes` = length(unique(WATERBODY_CODE))) %>% 
+  knitr::kable(caption = "Summary of events (unique year and lake combinations) for each contaminant and species in the test dataset used in this analysis.")
+
+```
+ 
+# Sampling Event Regressions
+
+```{r sampling-event-regressions, cache = TRUE}
+
+#### Perform the Sampling Event regressions approach ####
+#' This approach creates a separate linear regression for each 
+#' lake - sampling year - species combination
+
+
+## Create a function for performing a log weight - log contaminant model, taking a subset of the dataset as input. The function outputs resulting data and model statistics including R2's and RMSE.
+SER_weight_function <- function(x){
+  
+  ## grab the weight percentile from the data
+  percentile <- ecdf(x$WEIGHT_GRAM_LOG)
+  
+  ## calculate the regression for the sampling event
+  tot.time <- Sys.time()
+  rel <- lm(VALUE_LOG ~ WEIGHT_GRAM_LOG, data = x %>% filter(!is.na(VALUE_LOG_TRAIN)))
+  tot.time <- Sys.time() - tot.time
+  ## grab some context and regression summary statistics
+  n <- unique(x$N_fish) # number of individuals
+  int <- formatC(rel$coefficients[1], digits = 4, format = "f") # estimated intercept
+  slp <- formatC(rel$coefficients[2], digits = 4, format = "f") # estimated slope
+  int_confint <- paste(formatC(confint(rel)[1, ], digits = 4, format = "f"),
+                              collapse = " - ") # estimated intercept confidence interval
+  slp_confint <- paste(formatC(confint(rel)[2, ], digits = 4, format = "f"),
+                              collapse = " - ") # estimated slope confidence interval
+  r2 <- formatC(summary(rel)$r.squared, digits = 4, format = "f") # adjusted R2
+  
+  ## calculate predicted values for the test data
+  fits <- predict(rel, newdata = data.frame(WEIGHT_GRAM_LOG = x$WEIGHT_GRAM_LOG))
+  
+  ## calculate residuals of just test data for RMSE calculation
+  RMSE_resid <- fits - x$VALUE_LOG
+  RMSE <- sqrt(mean(RMSE_resid[!is.na(x$VALUE_LOG_TEST) & !is.na(RMSE_resid)]^2)) ### This will be used (and calculated for other approaches) to show model performance on lakes with different amounts of fishes - This is ALWAYS done with the test data
+  
+  resids <- resid(rel)
+  
+  
+  ## Modify the predicted standardized weight too 1000 grams
+  pred_modify <- 1000
+        
+  target_size_percentile <- percentile(pred_modify)
+        
+  ## Generated exponentiated prediction interval
+  pred <- exp(predict(rel,
+                             newdata = data.frame(WEIGHT_GRAM_LOG= log(pred_modify)),
+                             interval = "confidence"
+        ))
+  pred <- formatC(pred, digits = 4, format = "f")
+        
+        ## Bring context and summary statistics together into dataframe
+        frame <- list(n = n, int = int, int_confint = int_confint, slp = slp, slp_confint = slp_confint, r2 = r2, RMSE = RMSE,
+                             target_size_percentile = target_size_percentile, pred = pred, data = cbind(x, fits = fits), 
+                      run.time = tot.time)
+  
+}
+
+### Create the series of models and exported results
+SER_mods <- all_contaminants %>%
+  # split the dataset by contaminant, species for each waterbody and sampling year
+  split(list(.$CONTAMINANT, .$SPECIES_NAME, .$EVENT)) %>%
+  discard(~ nrow(.x %>% filter(!is.na(VALUE_LOG_TRAIN))) == 0) %>%
+  discard(~ nrow(.x %>% filter(!is.na(VALUE_LOG_TRAIN))) < 4 & !sum((.x %>% filter(!is.na(VALUE_LOG_TRAIN)))$WEIGHT_GRAM, na.rm = T) == 0) %>%
+  map(~ SER_weight_function(.x))
+
+## compile the fitted data and input data
+Modelled_data <- lapply(SER_mods, function(x){x$data %>% rename(SER_logfit = fits) %>% 
+    # back calculate the fitted values to the un-logged values
+    mutate(SER_fit = exp(SER_logfit))}) %>% 
+  # compile as dataframe
+  bind_rows() 
+
+## Calculate accuracy of Contaminant predictions by this method
+SER_accuracy_byN <- Modelled_data %>% filter(!is.na(VALUE_LOG_TEST)) %>% 
+  mutate(SER_residuals = SER_fit - VALUE)
+
+## plot the accuracy by weight of fish
+ggplot(SER_accuracy_byN, aes(WEIGHT_GRAM, SER_residuals)) + geom_point(alpha = 0.2) + geom_smooth() + geom_vline(xintercept = 1000, color = "red") +
+  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free")
+
+## plot the accuracy of fish by the number of fish used for the estimate
+ggplot(SER_accuracy_byN %>% filter(WEIGHT_GRAM > 450 & WEIGHT_GRAM < 1500), aes(N_fish, SER_residuals)) + geom_boxplot(aes(group = N_fish)) + geom_smooth() + facet_wrap(CONTAMINANT~SPECIES_NAME, scales= "free")
+
+
+# pull the model accuracies (Mean squared errors) for the different models
+SER_MSE <- lapply(SER_mods, function(x){data.frame(N_fish = x$n, RMSE = x$RMSE, R2 = x$r2, pred.lower = x$pred[1,2], pred.fit = x$pred[1,1], pred.upper = x$pred[1,3])}) %>% bind_rows(.id = "set") %>% 
+  mutate(CONTAMINANT = str_extract(set, "^Hg|^As"), 
+         SPECIES_NAME = str_extract(set, "Lake Trout|Walleye|Northern Pike"),
+         WATERBODY_CODE = str_extract(str_extract(set, "[[:alnum:][:space:]_]+$"), "^[[:alnum:][:space:]]+")) %>%
+  filter(WATERBODY_CODE %in% SER_accuracy_byN$WATERBODY_CODE) %>%
+  ## Compare similar sample sizes from each N_fish category - lowest 25th percentile
+  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>% 
+    mutate(sample_num = n()) %>% 
+    group_by(CONTAMINANT, SPECIES_NAME) %>%
+    mutate(sampling_num = as.integer(quantile(sample_num, 0.25)), 
+           n_samps = as.integer(sample_num - sampling_num)) %>%
+  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>% 
+    mutate(keep = ifelse(sampling_num < sample_num, sample(c(rep(FALSE, times = unique(n_samps)), rep(TRUE, times = unique(sampling_num))), unique(sample_num)), TRUE)) %>% 
+    filter(keep)
+
+# plot model accuracies against number of fish used to produce the model
+ggplot(SER_MSE, aes(N_fish, RMSE)) + geom_boxplot(aes(group = N_fish), alpha = 0.2) + 
+  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free") + geom_smooth()
+
+
+SER_times <- lapply(SER_mods, function(x){x$run.time}) %>% 
+  # compile as dataframe
+  bind_rows(.id = "model") %>%
+  t() %>% as.data.frame() %>% rownames_to_column("ID")  %>% 
+  mutate(SPECIES_NAME = str_extract(ID, "Walleye|Lake Trout|Northern Pike"),
+         CONTAMINANT = str_extract(ID, "^Hg|^As"),
+         run.time = as.numeric(str_extract(V1, "[[:digit:]\\.]+")), 
+         run.units = str_extract(V1, "[[:alpha:]]+")) %>%
+  group_by(SPECIES_NAME, CONTAMINANT) %>%
+  summarize(run.time = sum(run.time), 
+            run.units = unique(run.units)) %>%
+  mutate(method = "SER")
+
+```
+
+
+```{r lmer-mixedmod, cache = T}
+### Perform the Lmer-mixed model Maximum likelihood approach.
+
+## Make some functions for easier processing
+
+# Function to bootstrap values
+LMER_boot_est <- function(.) {
+  c(beta=fixef(.), 
+    as.data.frame(VarCorr(.))$sdcor[c(1:3,5)])
+}
+
+## function to grab summary of bootstrapping results
+LMER_boot_est_summary <- function(merBoot){
+  
+  t <- as.data.frame(merBoot$t)
+  
+  names(t) <- c("Intercept", "Slope", "WATERBODY_CODE_SAMPLE_YEAR", 
+                "WATERBODY_CODE", "WATERBODY_CODE_SLOPE", "RESIDUAL")
+  
+  est = apply(t, 2, function(x) as.numeric(quantile(x, probs = 0.5, na.rm = T)))
+  upr = apply(t, 2, function(x) as.numeric(quantile(x, probs = 0.975, na.rm = T)))
+  lwr = apply(t, 2, function(x) as.numeric(quantile(x, probs = 0.025, na.rm = T)))
+  
+  ret_tab <- as.data.frame(dplyr::bind_rows(est, lwr, upr))
+  rownames(ret_tab) <- c("Estimate", "Lower", "Upper")  
+  
+  return(ret_tab)  
+}
+
+## function to grab summary of predicted values
+LMER_boot_pred_summary <- function(merBoot) {
+  return(
+    data.frame(fit = apply(merBoot$t, 2, function(x) as.numeric(quantile(x, probs=.5, na.rm=TRUE))),
+               lwr = apply(merBoot$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE))),
+               upr = apply(merBoot$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
+    )
+  )
+}
+
+## Function to create bootstrapped predictions
+LMER_boot_initiate <- function(varlist, nclust, envir){
+  closeAllConnections()
+  clust <- parallel::makeCluster(nclust)
+  parallel::clusterEvalQ(clust, library("lme4"))
+  parallel::clusterExport(cl = clust, varlist = varlist, envir = envir)
+  showConnections()
+  clust
+}
+
+
+lmer_bootstrap_prep <- function(x){
+  ## Generate prediction for each waterbody
+  prediction.data <- x %>% filter(!is.na(VALUE_LOG_TRAIN)) %>% dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, EVENT) %>% distinct() %>% mutate(WEIGHT_GRAM_LOG = log(1000)) 
+  
+  return(list(data = x, preddata = prediction.data))
+}
+
+## Function to create initial LMER model using a subset of dataframe
+lmer_mass_model <- function(x){
+  
+  lmer.time <-  Sys.time()
+  
+  mod.lmer <- lmer(VALUE_LOG ~ WEIGHT_GRAM_LOG + (WEIGHT_GRAM_LOG|WATERBODY_CODE) + (1|EVENT), data = x$data[!is.na(x$data$VALUE_LOG_TRAIN), ])
+  
+  lmer.time <- Sys.time() - lmer.time
+  
+  ## Data for fit/accuracy plotting
+  data.out <- x$data %>%
+    cbind(LMER_logfit = predict(mod.lmer, newdata = x$data, allow.new.levels = TRUE)) %>% 
+    mutate(LMER_resid = LMER_logfit - VALUE_LOG,
+           LMER_fit = exp(LMER_logfit))
+  
+  prediction_data <- x$preddata
+  ## get the Bootstrap confidence intervals from bootMer
+  clust <- LMER_boot_initiate(varlist = "prediction_data", nclust = 10, envir = environment()) 
+  system.time(LMER_MASS_boot_est <- lme4::bootMer(mod.lmer, LMER_boot_est, 
+                                                      nsim=2000, use.u = TRUE, .progress = "txt",  ## 99 before
+                                                      parallel = "snow", 
+                                                      cl = clust, 
+                                                      ncpus = 4))
+  
+  ## Get fitted values from bootstrapping
+  LMER_MASS_fit_pred <- function(., newdata) {
+      predict(., newdata = x$data, allow.new.levels = TRUE)
+  }
+  
+  boot.time <- Sys.time()
+  
+  system.time(LMER_MASS_boot_fit <- lme4::bootMer(mod.lmer, LMER_MASS_fit_pred, 
+                                                      nsim=2000, use.u = TRUE, .progress = "txt",  ## 99 before
+                                                      parallel = "snow", 
+                                                      cl = clust, 
+                                                      ncpus = 4))
+  boot.time <- Sys.time() - boot.time
+  
+  ## Function for bootstrapped predictions ## specific for each iteration
+   LMER_MASS_boot_pred <- function(., newdata) {
+      predict(., newdata=x$preddata)
+   }
+   
+   system.time(LMER_MASS_boot_pred_res <- lme4::bootMer(mod.lmer, LMER_MASS_boot_pred, 
+                                                           nsim=2000, use.u = TRUE, .progress = "txt",  ## 99 before
+                                                           parallel = "snow", 
+                                                           cl = clust, 
+                                                           ncpus = 4)) 
+   
+   results = list(data = data.out, 
+                  bootstrapped.fits = LMER_boot_pred_summary(LMER_MASS_boot_fit), 
+                  estimates = LMER_boot_est_summary(LMER_MASS_boot_est),
+                  predicted.1000g = LMER_boot_pred_summary(LMER_MASS_boot_pred_res), 
+                  run.time.lmer = lmer.time,
+                  run.time.boot.lmer = boot.time)
+}
+
+#### Modelling as separate models by Contaminant ####
+
+## Produce individual models for each contaminant/species combination
+LMER_data <- all_contaminants %>% 
+  split(list(.$CONTAMINANT, .$SPECIES_NAME)) %>%
+  map(~ lmer_bootstrap_prep(.x)) %>% 
+  map(~ lmer_mass_model(.x))
+
+
+LMER_bootstraps_data <- LMER_data %>% 
+  map(~ cbind(.x$data, .x$bootstrapped.fits)) %>% 
+  bind_rows() %>% 
+  mutate(boot_log_resid = fit - VALUE_LOG) %>% 
+  rename(boot_log_fit = fit, boot_log_lwr = lwr, boot_log_upr = upr, LMER_log_resid = LMER_resid) %>%
+  mutate(boot_resid = exp(boot_log_fit) - VALUE, 
+         LMER_resid = LMER_fit - VALUE)
+
+
+## ## Calculate accuracy of Contaminant predictions by this method as well as model accuracies using RMSE
+Boot_LMER_data_by_N <- LMER_bootstraps_data %>% 
+  group_by(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT) %>% 
+  mutate(N_fish = sum(!is.na(VALUE_LOG_TRAIN))) %>%
+  filter(!is.na(VALUE_LOG_TEST)) %>%
+  mutate(boot_LMER_RMSE = sqrt(mean(boot_log_resid^2)), LMER_RMSE=sqrt(mean(LMER_log_resid^2))) %>% 
+  ## Compare similar sample sizes from each N_fish category - lowest 25th percentile
+  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>% 
+    mutate(sample_num = n()) %>% 
+    group_by(CONTAMINANT, SPECIES_NAME) %>%
+    mutate(sampling_num = as.integer(quantile(sample_num, 0.25)), 
+           n_samps = as.integer(sample_num - sampling_num)) %>%
+  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>% 
+    # this filters the samples to a random sample of lakes with the 25th percentile of representative sample lakes, so that the graphing comparison of boxplots is less biased by unbalanced sample numbers
+    mutate(keep = ifelse(sampling_num < sample_num, sample(c(rep(FALSE, times = unique(n_samps)), rep(TRUE, times = unique(sampling_num))), unique(sample_num)), TRUE)) %>% 
+    filter(keep) 
+
+  Boot_LMER_accuracy_by_N <- Boot_LMER_data_by_N %>% 
+  dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, VALUE, WEIGHT_GRAM, VALUE_LOG, WEIGHT_GRAM_LOG, LMER_logfit, LMER_log_resid, LMER_resid, boot_log_fit, boot_log_resid, boot_resid, N_fish) %>%
+    pivot_longer(cols = c(LMER_logfit, LMER_log_resid, LMER_resid, boot_log_fit, boot_log_resid, boot_resid), names_to = "response", values_to = "predicted_value") %>% 
+    rbind(SER_accuracy_byN %>% pivot_longer(cols=c(SER_logfit, SER_fit, SER_residuals), names_to = "response", values_to = "predicted_value"))
+
+
+Boot_LMER_RMSE <- Boot_LMER_data_by_N %>% 
+  dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, N_fish, boot_LMER_RMSE, LMER_RMSE) %>% 
+  distinct() %>%
+  pivot_longer(cols = c(boot_LMER_RMSE, LMER_RMSE), names_to = "response", values_to = "predicted_value")
+
+## plot the accuracy by weight of fish
+ggplot(Boot_LMER_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals")), aes(WEIGHT_GRAM, predicted_value, color = response)) + geom_point(alpha = 0.2) +
+  geom_smooth() + geom_vline(xintercept = 1000, color = "red") +
+  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free")
+
+## plot the accuracy of fish by the number of fish used for the estimate
+ggplot(Boot_LMER_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals")), aes(N_fish, predicted_value, color = response)) + 
+  geom_boxplot(aes(group = paste(N_fish, response))) + 
+  geom_line(data = Boot_LMER_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid")) %>%
+              group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
+              summarize(predicted_value = median(predicted_value))) + 
+  facet_wrap(CONTAMINANT~SPECIES_NAME, scales = "free")
+
+
+Boot_LMER_RMSE <- Boot_LMER_RMSE %>% rbind(SER_MSE %>% rename(predicted_value = RMSE) %>% mutate(response = "SER_RMSE"))
+
+# plot model accuracies against number of fish used to produce the model
+ggplot(Boot_LMER_RMSE, aes(N_fish, predicted_value, color = response)) +
+  geom_boxplot(aes(group = paste(N_fish, response)), alpha = 0.2) + 
+  geom_line(data = Boot_LMER_RMSE %>%
+              group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
+              summarize(predicted_value = median(predicted_value))
+            ) +
+  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free") + ylab("RMSE") + xlab("Number of Fish in sampling event")
+
+
+## Compile Run Times
+LMER_times <- lapply(LMER_data, function(x){data.frame(V1 = c(x$run.time.lmer, x$run.time.boot.lmer), method = c("LMER", "Boot.LMER"))}) %>% 
+  # compile as dataframe
+  bind_rows(.id = "model") %>%
+  t() %>% as.data.frame() %>% rownames_to_column("ID")  %>% 
+  mutate(SPECIES_NAME = str_extract(ID, "Walleye|Lake Trout|Northern Pike"),
+         CONTAMINANT = str_extract(ID, "^Hg|^As"),
+         run.time = as.numeric(str_extract(V1, "[[:digit:]\\.]+")), 
+         run.units = str_extract(V1, "[[:alpha:]]+")) %>%
+  group_by(SPECIES_NAME, CONTAMINANT) %>%
+  summarize(run.time = sum(run.time), 
+            run.units = unique(run.units)) %>%
+  mutate(method = "SER")
+
+### Compare the results of predicted 1000 g fish
+
+```
+
+
+```{r INLA-models, cache = T}
+
+## ## Set up precision --> standard deviation formula; Bayesian models use precision (tau) where sd = 1/sqrt(tau) 
+MySqrt <- function(x) {
+  1 / sqrt(x)
+}
+
+## Set up INLA function to run on data subsets
+
+contam.INLA <- function(x){
+  
+  # Set prior on precision
+  prec.prior <- list(prec = list(param = c(0.001, 0.001)))
+  
+  ## Add some Lake Data For predictions
+  
+  pred.data <- x %>% 
+    mutate(VALUE = NA, 
+           VALUE_LOG = NA, 
+           LENGTH_CM = NA, 
+           LENGTH_CM_LOG = NA, 
+           WEIGHT_GRAM = 1000, 
+           VALUE_LOG_TEST = NA, 
+           VALUE_LOG_TRAIN = NA, 
+           test_train = FALSE,
+           WEIGHT_GRAM_LOG = log(1000)) %>% 
+    distinct()
+  
+  x <- x %>% rbind(pred.data)
+  
+  ## Grab the time it took to run the overall model ##
+  tot.time <- Sys.time()
+  
+  ## Add dummy variable for the random effects
+  
+  INLA_MASS <- inla(VALUE_LOG_TRAIN ~WEIGHT_GRAM_LOG+ 
+                      #' The next two lines code for the random slopes effect due to waterbody, - basically codes for the random effect of the 
+                      #' two variables, expecting covariance of these variables  
+                      #' See the documentation for the description of this implementation 'inla.doc("iid2d")'
+                       f(WATERBODY_CODE1, n = 2*unique(x$n_waterbody), model = "iid2d") + 
+                       f(WATERBODY_CODE2, WEIGHT_GRAM_LOG, copy = "WATERBODY_CODE1") + 
+                       f(EVENT, model = "iid"),
+                     data = x, 
+                     control.predictor = list(
+                       compute = TRUE, 
+                       quantiles = c(0.025, 0.5, 0.975)
+                     ),
+                     control.compute = list(
+                       cpo = TRUE
+                     )
+                    )
+  
+  tot.time <- Sys.time()-tot.time
+  
+  fitted.data <- data.frame(WATERBODY_CODE = x$WATERBODY_CODE,
+                       SAMPLE_YEAR = x$SAMPLE_YEAR, 
+                       SPECIES_NAME = x$SPECIES_NAME,
+                       CONTAMINANT = x$CONTAMINANT, 
+                       VALUE = x$VALUE, 
+                       VALUE_LOG = x$VALUE_LOG,
+                       WEIGHT_GRAM = x$WEIGHT_GRAM, 
+                       WEIGHT_GRAM_LOG = x$WEIGHT_GRAM_LOG,
+                       TEST.val = !is.na(x$VALUE_LOG_TEST), 
+                       INLA_posterior_q50 = INLA_MASS$summary.fitted.values[, "0.5quant"], 
+                       INLA_posterior_q2p5 = INLA_MASS$summary.fitted.values[, "0.025quant"], 
+                       INLA_posterior_q97p5 = INLA_MASS$summary.fitted.values[, "0.975quant"]) %>% 
+    mutate(resid_log_inla = VALUE_LOG - INLA_posterior_q50, 
+           resid_inla = exp(VALUE_LOG) - exp(INLA_posterior_q50))
+  
+  ## Compile model effects ranges
+  fixed.effect <- INLA_MASS$summary.fixed
+  fixed.effect$Type <- "Fixed"
+  
+  random.effect.lake <- INLA_MASS$summary.random$WATERBODY_CODE1
+  random.effect.lake$ID <- as.character(random.effect.lake$ID)
+  random.effect.lake$WATERBODY_CODE1 <- random.effect.lake$ID
+  random.effect.lake <- merge(random.effect.lake, distinct(x[,c("WATERBODY_CODE1", "WATERBODY_CODE")]), no.dups = T)
+  random.effect.lake <- random.effect.lake[!duplicated(random.effect.lake), ]
+  random.effect.lake$Type <- "Random Intercept - Waterbody"
+  
+  random.slope.lake <- INLA_MASS$summary.random$WATERBODY_CODE2
+  random.slope.lake$ID <- as.character(random.slope.lake$ID)
+  random.slope.lake$WATERBODY_CODE2 <- random.slope.lake$ID
+  random.slope.lake <- merge(random.slope.lake, distinct(x[,c("WATERBODY_CODE2", "WATERBODY_CODE")]), no.dups = T)
+  random.slope.lake <- random.slope.lake[!duplicated(random.slope.lake), ]
+  random.slope.lake$Type <- "Random Slope - Waterbody"
+  
+  random.effect.event <- INLA_MASS$summary.random$EVENT
+  random.effect.event$ID <- as.character(random.effect.event$ID)
+  random.effect.event$EVENT <- random.effect.event$ID
+  random.effect.event <- random.effect.event[!duplicated(random.effect.event), ]
+  random.effect.event$Type <- "Random Slope - Waterbody Sampling Year"
+  
+  estimates <- list(fixed.effect = fixed.effect, random.effect.lake = random.effect.lake, 
+                    random.slope.lake = random.slope.lake, random.effect.event = random.effect.event)
+  ## Compile results
+  results = list(data = fitted.data[!fitted.data$TEST.val & !is.na(fitted.data$VALUE), ], 
+                 fits = fitted.data[fitted.data$TEST.val & !is.na(fitted.data$VALUE), ], 
+                 estimates = estimates,
+                 predicted.1000g = fitted.data[is.na(fitted.data$VALUE), ], 
+                 run.time = tot.time)
+}
+
+## Prepare data for INLA modelling
+
+INLA_data <- all_contaminants %>% 
+  group_by(CONTAMINANT, SPECIES_NAME) %>%
+  mutate(WATERBODY_CODE1 = as.integer(as.factor(WATERBODY_CODE))) %>% # for inla model, this needs to be an integer
+  mutate(WATERBODY_CODE2 = WATERBODY_CODE1 + max(WATERBODY_CODE1)) %>% # for inla model, this needs to be a different set of integers
+  mutate(n_waterbody = n_distinct(WATERBODY_CODE)) %>% # for inla model, we need to have a number of lakes assigned for setting the appropriate attributes for a two-dimensional model
+  split(list(.$CONTAMINANT, .$SPECIES_NAME)) %>%
+  map(~ contam.INLA(.x))
+
+
+
+INLA_data_by_N <- INLA_data %>% 
+  map(~ rbind(.x$data %>% mutate(VALUE_LOG_TRAIN = VALUE_LOG, VALUE_LOG_TEST = NA), .x$fits %>% mutate(VALUE_LOG_TRAIN = NA, VALUE_LOG_TEST = VALUE_LOG))) %>% 
+  bind_rows() %>% 
+  rename(INLA_log_fit = INLA_posterior_q50, INLA_log_lwr = INLA_posterior_q2p5, INLA_log_upr = INLA_posterior_q97p5, INLA_log_resid = resid_log_inla, INLA_resid = resid_inla) %>% 
+  ## ## Calculate accuracy of Contaminant predictions by this method as well as model accuracies using RMSE
+  group_by(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT) %>% 
+  mutate(N_fish = sum(!is.na(VALUE_LOG_TRAIN))) %>%
+  filter(!is.na(VALUE_LOG_TEST)) %>%
+  mutate(INLA_RMSE = sqrt(mean(INLA_log_resid^2))) %>% 
+  ## Compare similar sample sizes from each N_fish category - lowest 25th percentile
+  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>% 
+    mutate(sample_num = n()) %>% 
+    group_by(CONTAMINANT, SPECIES_NAME) %>%
+    mutate(sampling_num = as.integer(quantile(sample_num, 0.25)), 
+           n_samps = as.integer(sample_num - sampling_num)) %>%
+  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>% 
+    # this filters the samples to a random sample of lakes with the 25th percentile of representative sample lakes, so that the graphing comparison of boxplots is less biased by unbalanced sample numbers
+    mutate(keep = ifelse(sampling_num < sample_num, sample(c(rep(FALSE, times = unique(n_samps)), rep(TRUE, times = unique(sampling_num))), unique(sample_num)), TRUE)) %>% 
+    filter(keep) 
+
+## Get distinct individual residuals compiled and added to other model results
+
+models_accuracy_by_N <- INLA_data_by_N %>% 
+  dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, VALUE, WEIGHT_GRAM, VALUE_LOG, WEIGHT_GRAM_LOG, INLA_log_fit, INLA_log_resid, INLA_resid, N_fish) %>%
+    pivot_longer(cols = c(INLA_log_fit, INLA_log_resid, INLA_resid), names_to = "response", values_to = "predicted_value") %>% 
+    rbind(Boot_LMER_accuracy_by_N)
+
+## Get data from overall model fits compiled and added to other model results
+
+models_RMSE <- INLA_data_by_N %>% 
+  dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, N_fish, INLA_RMSE) %>% 
+  distinct() %>%
+  pivot_longer(cols = c(INLA_RMSE), names_to = "response", values_to = "predicted_value") %>% 
+  rbind(Boot_LMER_RMSE)
+
+## plot the accuracy by weight of fish
+ggplot(models_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + geom_point(alpha = 0.2) +
+  geom_smooth() + geom_vline(xintercept = 1000, color = "red") +
+  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free")
+
+## plot the accuracy of fish by the number of fish used for the estimate
+ggplot(models_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid")), aes(N_fish, predicted_value, color = response)) + 
+  geom_boxplot(aes(group = paste(N_fish, response))) + 
+  geom_line(data = Boot_LMER_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid")) %>%
+              group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
+              summarize(predicted_value = median(predicted_value))) + 
+  facet_wrap(CONTAMINANT~SPECIES_NAME, scales = "free")
+
+
+# plot model accuracies against number of fish used to produce the model
+ggplot(models_RMSE, aes(N_fish, predicted_value, color = response)) +
+  geom_boxplot(aes(group = paste(N_fish, response)), alpha = 0.2) + 
+  geom_line(data = Boot_LMER_RMSE %>%
+              group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
+              summarize(predicted_value = median(predicted_value))
+            ) +
+  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free") + ylab("RMSE") + xlab("Number of Fish in sampling event")
+
+
+
+```
+
+
+```{r RMSE_N, caption= "Residual mean squared error of predicted test data from sampling events trained with different numbers of fish derived from a random sampling approach. RMSE of test set sampling events are compared to the number of fish used from the sampling event that were included in the training dataset."}
+# plot model accuracies against number of fish used to produce the model
+ggplot(models_RMSE, aes(N_fish, predicted_value, color = response)) +
+  geom_boxplot(aes(group = paste(N_fish, response)), alpha = 0.2) + 
+  geom_line(data = Boot_LMER_RMSE %>%
+              group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
+              summarize(predicted_value = median(predicted_value))
+            ) +
+  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free") + ylab("RMSE") + xlab("Number of Fish used from sampling event used in model training")
+
+
+```
+
+
+```{r resids_fishsize}
+## plot the accuracy by weight of fish
+ggplot(models_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + geom_point(alpha = 0.2) +
+  geom_smooth() + geom_vline(xintercept = 1000, color = "red") +
+  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free")
+
+```
+
+
+```{r RMSEvsTime}
+## Calculate overall RMSE of each model, and total time to run model (Models are at level of each SPECIES_NAME - CONTAMINANT combination)
+
+## plot the model accuracies vs the time required to run each model
+
+```
+
+
+```{r predictions1000g}
+#Plot comparison of predicted Hg and As content of 1000g fish for each technique against The SER value
+
+```

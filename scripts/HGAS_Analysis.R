@@ -54,10 +54,9 @@ library(rstanarm)
 hg <- readxl::read_excel("./data/Ontario Inland 3 Species Hg 2008-2020-12-16.xlsx")
 nrow(hg) #39319
 
-sum( (hg$WEIGHT_GRAM > 900 & hg$WEIGHT_GRAM < 1100) , na.rm = TRUE) # 1979 fish
+sum( (hg$WEIGHT_GRAM > 900 & hg$WEIGHT_GRAM < 1100) , na.rm = TRUE) # 3843 fish
 
-hist(hg$WEIGHT_GRAM)
-
+## Log transform
 hg$LENGTH_CM_LOG <- log(hg$LENGTH_CM) 
 hg$WEIGHT_GRAM_LOG <- log(hg$WEIGHT_GRAM)
 hg$VALUE_LOG <- log(hg$VALUE)
@@ -69,16 +68,6 @@ hg_sub <- subset(hg, PORTION_TYPE_DESC %in%
                          c("SKINLESS, BONELESS FILLET (STANDARD MOE DORSAL FILLET)", 
                            "SKINLESS, BONELESS FILLET PLUG (SKIN-OFF)"))
 
-## Subset by eliminating river samples (but maintain lake samples) 
-river <- which( grepl("River", hg_sub$LOCATION_NAME) & !grepl("Lake", hg_sub$LOCATION_NAME) 
-                & !grepl("Lac", hg_sub$LOCATION_NAME))   
-
-table(hg$PORTION_TYPE_DESC)
-
-nrow(hg_sub[-river,])
-length(unique(hg_sub$LOCATION_NAME)) # 1204 lakes
-length(unique(hg_sub$WATERBODY_CODE_SAMPLE_YEAR)) # 1927 sampling events
-
 ## Subset and remove those lengths and weights that are NA
 hg_sub <- subset(hg_sub, !is.na(LENGTH_CM_LOG))
 hg_sub <- subset(hg_sub, !is.na(WEIGHT_GRAM_LOG))
@@ -87,6 +76,8 @@ length(unique(hg_sub$LOCATION_NAME)) # 1197 lakes
 length(unique(hg_sub$WATERBODY_CODE_SAMPLE_YEAR)) # 1915 sampling events
 
 unique(hg_sub[, c("SPECIES_CODE", "SPECIES_NAME")])
+
+nrow(hg_sub)
 
 ## 1.x) Data exploration for VALUE (Hg), WEIGHT_GRAM, and LENGTH_CM ----
 hist(hg_sub$VALUE); summary(hg_sub$VALUE)
@@ -140,15 +131,21 @@ median(table(Hg_LT$WATERBODY_CODE_SAMPLE_YEAR))
 min(table(Hg_LT$WATERBODY_CODE_SAMPLE_YEAR))
 max(table(Hg_LT$WATERBODY_CODE_SAMPLE_YEAR))
 
+summary(Hg_LT$WEIGHT_GRAM); quantile(Hg_LT$WEIGHT_GRAM, probs = c(0.025, 0.975))
+
 nrow(Hg_NP); length(with(Hg_NP, unique(WATERBODY_CODE))); 
 median(table(Hg_NP$WATERBODY_CODE_SAMPLE_YEAR))
 min(table(Hg_NP$WATERBODY_CODE_SAMPLE_YEAR))
 max(table(Hg_NP$WATERBODY_CODE_SAMPLE_YEAR))
 
+summary(Hg_NP$WEIGHT_GRAM); quantile(Hg_NP$WEIGHT_GRAM, probs = c(0.025, 0.975))
+
 nrow(Hg_WE); length(with(Hg_WE, unique(WATERBODY_CODE))); 
 median(table(Hg_WE$WATERBODY_CODE_SAMPLE_YEAR))
 min(table(Hg_WE$WATERBODY_CODE_SAMPLE_YEAR))
 max(table(Hg_WE$WATERBODY_CODE_SAMPLE_YEAR))
+
+summary(Hg_WE$WEIGHT_GRAM); quantile(Hg_WE$WEIGHT_GRAM, probs = c(0.025, 0.975))
 
 ## 1.x) SER - sampling event regressions ----
 
@@ -315,7 +312,6 @@ system.time(Hg_LMER_LT_MASS_boot_est <- lme4::bootMer(Hg_LMER_LT_MASS, LMER_boot
                                                       parallel = "snow", 
                                                       cl = clust, 
                                                       ncpus = 4)) #17s for 100
-?bootMer
 
 LMER_boot_est_summary(Hg_LMER_LT_MASS_boot_est) ## 889s
 
@@ -464,8 +460,6 @@ lines(ae_MASS$WEIGHT_GRAM_LOG$lower ~ ae_MASS$WEIGHT_GRAM_LOG$x$WEIGHT_GRAM_LOG,
                           terms=c("WEIGHT_GRAM_LOG","WATERBODY_CODE"), pred.type="re", show.legend = FALSE, show.values = TRUE, ci.lvl = NA))
 
 save.image(file = "./out_workspaces/HGAS_scratch.RData")
-
-
 
 ## 1.5) INLA - mixed model, Bayesian, fast ----
 
@@ -2588,7 +2582,7 @@ plot((As_INLA_WE_MASS_prediction_posteriors$`0.5quant`), As_STAN_WE_MASS_predict
 ## ***************
 ## MANUSCRIPT ----
 ## *************** 
-?raster::removeTmpFiles
+
 ## Weights for species of two datasets 
 
 quantile(Hg_LT$WEIGHT_GRAM, probs = c(0.5, 0.025, 0.975))
@@ -2648,7 +2642,6 @@ sd(WE_hg_sub_preds_mass$slp)
 sqrt(mean(resid(Hg_LMER_LT_MASS)^2))
 summary(lm(Hg_LT$VALUE_LOG ~ fitted(Hg_LMER_LT_MASS)))$adj.r.squared
 LMER_boot_est_summary(Hg_LMER_LT_MASS_boot_est)
-
 
 
 ## NP
@@ -2917,6 +2910,7 @@ lapply(Hg_LT_pred_list, function(xx){
 ## Local 
 xx <- Hg_LT_pred_list[[1]]
 yy <- un_event[1]
+
 lapply(Hg_LT_pred_list, function(xx){
   
   un_event <- unique(xx$WATERBODY_CODE_SAMPLE_YEAR)
@@ -3091,6 +3085,7 @@ with(Hg_WE_pred_list[["SER"]], plot(OBS ~ PRED))
 with(Hg_WE_pred_list[["ML"]], plot(OBS ~ PRED))
 with(Hg_WE_pred_list[["AB"]], plot(OBS ~ PRED))
 with(Hg_WE_pred_list[["AB"]], plot(OBS ~ PRED))
+
 
 ## As ----
 
@@ -3341,6 +3336,8 @@ with(As_WE_pred_list[["SER"]], plot(OBS ~ PRED))
 with(As_WE_pred_list[["ML"]], plot(OBS ~ PRED))
 with(As_WE_pred_list[["AB"]], plot(OBS ~ PRED))
 with(As_WE_pred_list[["AB"]], plot(OBS ~ PRED))
+
+
 
 
 
