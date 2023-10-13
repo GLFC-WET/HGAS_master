@@ -1,9 +1,21 @@
 ---
-title: "HGAS results"
-author: "Emily Smenderovac"
+title: "Mixed effects model approaches for estimating size-adjusted contaminant concentrations in fish populations."
+author: 
+- \* Emily Smenderovac (corresponding author), Great Lakes Forestry Centre, Natural Resources Canada, emily.smenderovac@nrcan-rncan.gc.ca
+- Brian W. Kielstra, Great Lakes Forestry Centre, Natural Resources Canada, bkielstra@ecometrix.ca
+- Calvin Kluke, Laurentian University, ckluke@laurentian.ca
+- Tom Johnston, Living with Lakes Centre, Laurentian University, Ontario Ministry of Natural Resources and Forestry, tjohnston@laurentian.ca
+- Satyendra Bhavsar, Ontario Ministry of the Environment and Climate Change, satyendra.bhavsar@ontario.ca
+- Rob Mackereth, Centre of Excellence for Sustainable Mining and Exploration, Ontario Ministry of Natural Resources and Forestry, rob.mackereth@ontario.ca
+- Stephanie Melles, Department of Chemistry and Biology, Toronto Metropolitan University, stephanie.melles@torontomu.ca 
+- Gretchen L. Lescord, Forests Fisheries and Geomatic Sciences, University of Florida, lescord.g@ufl.edu
+- Erik Emilson, Great Lakes Forestry Centre, Natural Resources Canada, erik.emilson@nrcan-rncan.gc.ca
 date: "`r Sys.Date()`"
 output: word_document
 ---
+
+<!--- Target journal, ES&T letters --->
+
 
 ```{r setup, include=FALSE}
 ## Load libraries 
@@ -17,7 +29,37 @@ library(rstanarm)
 library(tidyverse)
 ```
 
-# Data Characterization
+# Abstract
+
+Bigger fish are known to have higher concentrations of bioaccumulative contaminants like mercury (Hg). Sampling event regression (SERs) are frequently used to estimate size-adjusted concentrations of these contaminants in fish populations prior to making comparisons or further modeling. However, this approach can be limited by sample size constraints within and across waterbodies. Herein, we describe a mixed effects model approach that borrows strength from all available observations to estimate size-adjusted contaminant concentrations in individual fish populations and then compare amongst inference types and SERs. 
+
+[Add sentence or two summarizing main results - accurate estimates with n = 2 fish, comparisons among approaches]. 
+
+We recommend INLA as a reliable means of estimating size-adjusted contaminant concentration in fish populations, particularly when sample sizes are limited.  
+
+
+# Key Words
+Mercury, Arsenic, Fish, Mixed effects models, contaminant modelling
+
+# Introduction
+
+Consumption of wild-caught fish, while abundant with healthy fats and protein, is considered a potentially detrimental source of contaminants to the human body [@REF]. Bioaccumulative contaminants - which are incorporated into tissues faster than they can be excreted - are of particular concern because they can reach elevated levels in fish, even in remote waterbodies distant from primary sources of pollution. Due to their accumulation over time, the concentrations of these contaminants are often correlated with metrics of fish body size (e.g., weight, length). As a result, many monitoring programs and studies account for fish weight or length in their consumption recommendations (e.g., [@mecp2017]). This accumulation-size relationship is also accounted for in statistical models used in studies of contaminants (e.g., [@REF]) to avoid confounding effects of fish size. A common approach involved in modelling effect-contaminant relationships in fish is to determine the effects of various potential drivers on a size-adjusted estimate of the concentration of the contaminant across lakes (i.e., comparing effects on concentrations of the same size fish from each lake). A commonly used approach for estimating size-adjusted means of contaminant concentrations at the population-level is regressing contaminant concentrations against metrics of body size within a fish population (usually a unique species-lake combination for a given year) and use the resulting linear equation to estimate the concentration at a chosen size (e.g., 500 cm or 1kg); we refer to this approach as Sampling Event Regressions (SERs). 
+
+The strength of fish contaminant-size relationships vary among different types of contaminants and across fish species or waterbodies, due to complex environmental and metabolic factors. For example, mercury (Hg) is a highly bioaccumulative contaminant that, due to its ubiquitous dispersion, is a global concern that is routinely monitored in fish. Mercury is well known to accumulate in the muscle tissue of fish, due its chemical speciation and inter-organ transport [@peng2017]. Many studies have found strong positive correlations between Hg concentrations ([Hg]) and body size in both freshwater [@REF] and marine [@REFS] environments and, thus, size-adjustments of Hg concentrations prior to making comparisons across environmental gradients are common [@REFs]. In contrast, arsenic is less bioaccumulative in fish, showing mixed and weaker relationships with metrics of body size [@lescord2020;@kluke2023]. Depending on its chemical speciation, arsenic can be a harmful carcinogenic contaminant, but it is less widely distributed and often originates from a localized point source of contamination or natural abundance. It is also less routinely monitored and researched when compared to [Hg] in fish, which results in less data to be available for size-adjustment models. However, not accounting for size in population-level comparisons of arsenic concentrations ([As]) could mean that some variation is unaccounted for, possibly weakening predictions and limiting our understanding of environmental cycling and bioaccumulation patterns.
+
+In general, research and monitoring programs sample waterbodies for fish by collecting a targeted sample size (e.g., 10-20 individuals/species) across as broad of a size range as possible [@REFs]. However, such opportunistic sampling can limit the number of fish caught, the size range represented, or the distribution of fish sizes for a given population – all of which may lead to over/under estimating standardized concentrations when using an SER approach [@REF]. Alternatively, deficient populations may be excluded altogether, sacrificing valuable data often from underrepresented waterbodies or fish species. Mixed effects regression approaches have been used to overcome this limitation such as maximum likelihood [@REF]. Bayesian linear mixed effects models [@REF] are also potential solution as they utilize all data across sampling structures (e.g., waterbodies) to inform predictions and allow for explicitly modeling variation of random effects variables. Different Bayesian linear mixed effects models have been implemented in R, including Bayesian inference in the \code(rstanarm) package [@REF], and approximate Bayesian inference in the \code(INLA) package [@REF]. 
+
+Herein, we present a novel statistical approach to generating size-adjusted contaminant estimates at the population level using Bayesian inference. We evaluate these approaches using two contaminant measures, total [Hg] and [As] in fish muscle tissue, to assess differences in the modeling approaches based on bioaccumulative potential and data availability. More specifically, we compared the results of mixed model approaches that borrow strength from fish across all populations (i.e., pooled across species and waterbodies) to generate predictions for individual lakes to the SER approach. We hypothesize that mixed modelling approaches will provide comparable or more accurate predictions of contaminant concentrations to SER. We also expect that Bayesian approaches will have improved accuracy compared to more simplistic implementations of linear mixed models, especially for predictions in lakes with low sample numbers. We expect that INLA will outperform STAN models in terms of computation time, but have similar predictive accuracy.  
+
+
+# Methods
+
+## Datasets
+
+We obtained fish-level Hg and As data for inland waterbodies across Ontario from the Ontario Ministry of Environment, Conservation, and Parks (OMECP). Although individual fish sampling protocols varied, muscle tissue sent to OMECP is analyzed using standardized methods as part of the Fish Contaminants Monitoring Program. More specifically, total [Hg] were measured using cold vapor-flameless atomic absorption spectroscopy (CV-FAAS) following protocol HGBIO-WS057 and total [As] was measured using Inductively Coupled Plasma Mass Spectrometry (ICP-MS) following method BIOTA-E3461. We limited our analyses to inland lakes and three species of interest: Salvelinus namaycush namaycush (common Lake Trout, hereafter LT), Esox lucius (Northern Pike, hereafter NP), and Sander vitreus (Walleye, hereafter WE). These three species represent important food fish in Ontario, sought by subsistence and sport fishers across the province. While they are all predatory fish, LT are generally restricted to profundal zones, while NP and WAL have broader movement patterns. In total, the final dataset we used included [Hg] in 37,923 fish and [As] in 1,001 fish. A full description of the data availability for each fish species and contaminant is in Table 1. We split the dataset into approximately 50/50 splits of test and train data using the \code(sample) function in R. A full description of the resulting train and testing datasets are in Table \@ref(tab:sampling-events-summary-train) and Table \@ref(tab:sampling-events-summary-table-test), respectively.
+
+
+## Data Characterization
 
 ```{r hg-as-data}
 
@@ -116,7 +158,21 @@ all_contaminants %>% left_join(lakes_SER) %>%
 
 ```
  
-# Sampling Event Regressions
+## Modelling
+
+All modelling and analyses were performed in R Version 4.2.3 [@REF] on a Dell Latitude 5510 PC running Windows 10 Enterprise with a 1.70GHz, 2208 MHz 4 Core(s), 8 logical Processor, 16 GB of physical memory and 34.6 GB of virtual memory.
+
+### Sampling event regressions
+
+For each contaminant-species-waterbody-year combination (i.e., a sampling event), we developed log-contaminant (ug/g) by log-weight (g) regression models for those combinations with at least 5 sampled individuals [@4REFS]. Each model used the following formula: 
+
+$$
+log(contaminant_i) = \beta_1 + \beta_2 * log(weight_i) + \epsilon_i
+$$
+$$
+\epsilon_i \sim N(0, \sigma_i^2)
+$$
+where *i* is an individual fish for a species-waterbody-year combination; these models were run on training data until all combinations were exhausted. The time required to run each model was recorded, and we used these models to generate contaminant predictions and their 95% confidence intervals for 50g and 1000 g fish per sampling event, as well as predict contaminant concentrations of testing data. Predicted values of test data were collected and used to generate root mean squared error for each sampling event model (RMSE~event~), effectively representing the predictive accuracy of each model. 
 
 ```{r sampling-event-regressions, cache = TRUE}
 
@@ -132,9 +188,8 @@ SER_weight_function <- function(x){
   percentile <- ecdf(x$WEIGHT_GRAM_LOG)
   
   ## calculate the regression for the sampling event
-  tot.time <- Sys.time()
-  rel <- lm(VALUE_LOG ~ WEIGHT_GRAM_LOG, data = x %>% filter(!is.na(VALUE_LOG_TRAIN)))
-  tot.time <- Sys.time() - tot.time
+  tot.time <- system.time(rel <- lm(VALUE_LOG ~ WEIGHT_GRAM_LOG, data = x %>% filter(!is.na(VALUE_LOG_TRAIN))))
+  
   ## grab some context and regression summary statistics
   n <- unique(x$N_fish) # number of individuals
   int <- formatC(rel$coefficients[1], digits = 4, format = "f") # estimated intercept
@@ -156,7 +211,7 @@ SER_weight_function <- function(x){
   
   
   ## Modify the predicted standardized weight too 1000 grams
-  pred_modify <- 1000
+  pred_modify <- c(1000, 500)
         
   target_size_percentile <- percentile(pred_modify)
         
@@ -179,7 +234,7 @@ SER_mods <- all_contaminants %>%
   # split the dataset by contaminant, species for each waterbody and sampling year
   split(list(.$CONTAMINANT, .$SPECIES_NAME, .$EVENT)) %>%
   discard(~ nrow(.x %>% filter(!is.na(VALUE_LOG_TRAIN))) == 0) %>%
-  discard(~ nrow(.x %>% filter(!is.na(VALUE_LOG_TRAIN))) < 4 & !sum((.x %>% filter(!is.na(VALUE_LOG_TRAIN)))$WEIGHT_GRAM, na.rm = T) == 0) %>%
+  discard(~ nrow(.x %>% filter(!is.na(VALUE_LOG_TRAIN))) < 5 & !sum((.x %>% filter(!is.na(VALUE_LOG_TRAIN)))$WEIGHT_GRAM, na.rm = T) == 0) %>%
   map(~ SER_weight_function(.x))
 
 ## compile the fitted data and input data
@@ -192,14 +247,6 @@ Modelled_data <- lapply(SER_mods, function(x){x$data %>% rename(SER_logfit = fit
 ## Calculate accuracy of Contaminant predictions by this method
 SER_accuracy_byN <- Modelled_data %>% filter(!is.na(VALUE_LOG_TEST)) %>% 
   mutate(SER_residuals = SER_fit - VALUE)
-
-## plot the accuracy by weight of fish
-ggplot(SER_accuracy_byN, aes(WEIGHT_GRAM, SER_residuals)) + geom_point(alpha = 0.2) + geom_smooth() + geom_vline(xintercept = 1000, color = "red") +
-  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free")
-
-## plot the accuracy of fish by the number of fish used for the estimate
-ggplot(SER_accuracy_byN %>% filter(WEIGHT_GRAM > 450 & WEIGHT_GRAM < 1500), aes(N_fish, SER_residuals)) + geom_boxplot(aes(group = N_fish)) + geom_smooth() + facet_wrap(CONTAMINANT~SPECIES_NAME, scales= "free")
-
 
 # pull the model accuracies (Mean squared errors) for the different models
 SER_MSE <- lapply(SER_mods, function(x){data.frame(N_fish = x$n, RMSE = x$RMSE, R2 = x$r2, pred.lower = x$pred[1,2], pred.fit = x$pred[1,1], pred.upper = x$pred[1,3])}) %>% bind_rows(.id = "set") %>% 
@@ -217,26 +264,36 @@ SER_MSE <- lapply(SER_mods, function(x){data.frame(N_fish = x$n, RMSE = x$RMSE, 
     mutate(keep = ifelse(sampling_num < sample_num, sample(c(rep(FALSE, times = unique(n_samps)), rep(TRUE, times = unique(sampling_num))), unique(sample_num)), TRUE)) %>% 
     filter(keep)
 
-# plot model accuracies against number of fish used to produce the model
-ggplot(SER_MSE, aes(N_fish, RMSE)) + geom_boxplot(aes(group = N_fish), alpha = 0.2) + 
-  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free") + geom_smooth()
-
-
-SER_times <- lapply(SER_mods, function(x){x$run.time}) %>% 
+## compile times for the SER models
+SER_times <- lapply(SER_mods, function(x){x$run.time["elapsed"]}) %>% 
   # compile as dataframe
-  bind_rows(.id = "model") %>%
-  t() %>% as.data.frame() %>% rownames_to_column("ID")  %>% 
+  bind_rows(.id = "ID") %>% as.data.frame() %>% 
   mutate(SPECIES_NAME = str_extract(ID, "Walleye|Lake Trout|Northern Pike"),
          CONTAMINANT = str_extract(ID, "^Hg|^As"),
-         run.time = as.numeric(str_extract(V1, "[[:digit:]\\.]+")), 
-         run.units = str_extract(V1, "[[:alpha:]]+")) %>%
+         run.time = elapsed) %>%
   group_by(SPECIES_NAME, CONTAMINANT) %>%
-  summarize(run.time = sum(run.time), 
-            run.units = unique(run.units)) %>%
+  summarize(run.time = sum(run.time)) %>%
   mutate(method = "SER")
 
 ```
 
+### Mixed effects regression models
+
+For each contaminant-species combination, we developed log-contaminant (μg/g) by log-weight (g) mixed effects regression models. We allowed for random variation in the slope and intercept per waterbody, and random variation in the intercept by sampling event (i.e., each unique waterbody-year combination). This identical model structure was fit in three modelling approaches: maximum likelihood inference in lme4 (ML models; cite XX), Bayesian inference with Markov Chain Monte Carlo in Stan through rstanarm (STAN models; cite XX) in R (cite XX), and approximate Bayesian inference using integrated nested Laplace approximation in INLA through R-INLA (INLA models; cite XX). These models used the following formula:
+
+$$
+log(contaminant_{ijk}) = \beta_1 + \beta_2 * log(weight_{ijk})+ U_{j} + W_{jk} + \epsilon_i
+$$
+$$
+\epsilon_i \sim N(0, \sigma_i^2)
+$$
+Where *U* is the random effect on the slope for each waterbody, and *W* is the random effect of each waterbody-year sampling event.
+
+For each modelling approach, the time required to run each model was recorded, and the residuals of the testing dataset were collected to calculate RMSE~event~ for the distinct sampling events in the dataset. We used these models to generate contaminant predictions and their 95% confidence intervals for 50g and 1000 g fish per sampling event. 
+
+#### Maximum likelihood inference
+
+ML models were fit using the \code(lme4) package, using default settings [@REF]. We generated results for the basic model, with the understanding that this model would not incroporate the uncertainty of the random effects. To account for this limitation, we also performed a bootstrapping analysis using \code(lme4)'s \code(bootMer) parametric bootstrapping with effects using 2000 simulations and with the use.u setting set to TRUE using 4 cpus. We used the bootstrapping results to generate 95% confidence intervals of the ML coefficients and predictions that would include the uncertainty in the random effects.
 
 ```{r lmer-mixedmod, cache = T}
 ### Perform the Lmer-mixed model Maximum likelihood approach.
@@ -290,7 +347,14 @@ LMER_boot_initiate <- function(varlist, nclust, envir){
 
 lmer_bootstrap_prep <- function(x){
   ## Generate prediction for each waterbody
-  prediction.data <- x %>% filter(!is.na(VALUE_LOG_TRAIN)) %>% dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, EVENT) %>% distinct() %>% mutate(WEIGHT_GRAM_LOG = log(1000)) 
+  prediction.data <- x %>% 
+    filter(!is.na(VALUE_LOG_TRAIN)) %>% 
+    dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, EVENT) %>% 
+    distinct() %>% mutate(WEIGHT_GRAM_LOG = log(1000)) %>% 
+    rbind( x %>% 
+             filter(!is.na(VALUE_LOG_TRAIN)) %>% 
+             dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, EVENT) %>% 
+             distinct() %>% mutate(WEIGHT_GRAM_LOG = log(500)) )
   
   return(list(data = x, preddata = prediction.data))
 }
@@ -298,11 +362,7 @@ lmer_bootstrap_prep <- function(x){
 ## Function to create initial LMER model using a subset of dataframe
 lmer_mass_model <- function(x){
   
-  lmer.time <-  Sys.time()
-  
-  mod.lmer <- lmer(VALUE_LOG ~ WEIGHT_GRAM_LOG + (WEIGHT_GRAM_LOG|WATERBODY_CODE) + (1|EVENT), data = x$data[!is.na(x$data$VALUE_LOG_TRAIN), ])
-  
-  lmer.time <- Sys.time() - lmer.time
+  lmer.time <- system.time(mod.lmer <- lmer(VALUE_LOG ~ WEIGHT_GRAM_LOG + (WEIGHT_GRAM_LOG|WATERBODY_CODE) + (1|EVENT), data = x$data[!is.na(x$data$VALUE_LOG_TRAIN), ]))
   
   ## Data for fit/accuracy plotting
   data.out <- x$data %>%
@@ -313,7 +373,7 @@ lmer_mass_model <- function(x){
   prediction_data <- x$preddata
   ## get the Bootstrap confidence intervals from bootMer
   clust <- LMER_boot_initiate(varlist = "prediction_data", nclust = 10, envir = environment()) 
-  system.time(LMER_MASS_boot_est <- lme4::bootMer(mod.lmer, LMER_boot_est, 
+  lmer.time <- system.time(LMER_MASS_boot_est <- lme4::bootMer(mod.lmer, LMER_boot_est, 
                                                       nsim=2000, use.u = TRUE, .progress = "txt",  ## 99 before
                                                       parallel = "snow", 
                                                       cl = clust, 
@@ -324,14 +384,13 @@ lmer_mass_model <- function(x){
       predict(., newdata = x$data, allow.new.levels = TRUE)
   }
   
-  boot.time <- Sys.time()
   
-  system.time(LMER_MASS_boot_fit <- lme4::bootMer(mod.lmer, LMER_MASS_fit_pred, 
+  boot.time <- system.time(LMER_MASS_boot_fit <- lme4::bootMer(mod.lmer, LMER_MASS_fit_pred, 
                                                       nsim=2000, use.u = TRUE, .progress = "txt",  ## 99 before
                                                       parallel = "snow", 
                                                       cl = clust, 
                                                       ncpus = 4))
-  boot.time <- Sys.time() - boot.time
+
   
   ## Function for bootstrapped predictions ## specific for each iteration
    LMER_MASS_boot_pred <- function(., newdata) {
@@ -360,6 +419,8 @@ LMER_data <- all_contaminants %>%
   map(~ lmer_bootstrap_prep(.x)) %>% 
   map(~ lmer_mass_model(.x))
 
+## Cache this dataset, because TAKES FOREVER
+save(LMER_data, file = "out_workspaces/LMER_models.RDS")
 
 LMER_bootstraps_data <- LMER_data %>% 
   map(~ cbind(.x$data, .x$bootstrapped.fits)) %>% 
@@ -387,61 +448,183 @@ Boot_LMER_data_by_N <- LMER_bootstraps_data %>%
     mutate(keep = ifelse(sampling_num < sample_num, sample(c(rep(FALSE, times = unique(n_samps)), rep(TRUE, times = unique(sampling_num))), unique(sample_num)), TRUE)) %>% 
     filter(keep) 
 
-  Boot_LMER_accuracy_by_N <- Boot_LMER_data_by_N %>% 
+  models_accuracy_by_N <- Boot_LMER_data_by_N %>% 
   dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, VALUE, WEIGHT_GRAM, VALUE_LOG, WEIGHT_GRAM_LOG, LMER_logfit, LMER_log_resid, LMER_resid, boot_log_fit, boot_log_resid, boot_resid, N_fish) %>%
     pivot_longer(cols = c(LMER_logfit, LMER_log_resid, LMER_resid, boot_log_fit, boot_log_resid, boot_resid), names_to = "response", values_to = "predicted_value") %>% 
     rbind(SER_accuracy_byN %>% pivot_longer(cols=c(SER_logfit, SER_fit, SER_residuals), names_to = "response", values_to = "predicted_value"))
 
 
-Boot_LMER_RMSE <- Boot_LMER_data_by_N %>% 
+models_RMSE <- Boot_LMER_data_by_N %>% 
   dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, N_fish, boot_LMER_RMSE, LMER_RMSE) %>% 
   distinct() %>%
   pivot_longer(cols = c(boot_LMER_RMSE, LMER_RMSE), names_to = "response", values_to = "predicted_value")
 
-## plot the accuracy by weight of fish
-ggplot(Boot_LMER_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals")), aes(WEIGHT_GRAM, predicted_value, color = response)) + geom_point(alpha = 0.2) +
-  geom_smooth() + geom_vline(xintercept = 1000, color = "red") +
-  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free")
-
-## plot the accuracy of fish by the number of fish used for the estimate
-ggplot(Boot_LMER_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals")), aes(N_fish, predicted_value, color = response)) + 
-  geom_boxplot(aes(group = paste(N_fish, response))) + 
-  geom_line(data = Boot_LMER_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid")) %>%
-              group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
-              summarize(predicted_value = median(predicted_value))) + 
-  facet_wrap(CONTAMINANT~SPECIES_NAME, scales = "free")
-
-
-Boot_LMER_RMSE <- Boot_LMER_RMSE %>% rbind(SER_MSE %>% rename(predicted_value = RMSE) %>% mutate(response = "SER_RMSE"))
-
-# plot model accuracies against number of fish used to produce the model
-ggplot(Boot_LMER_RMSE, aes(N_fish, predicted_value, color = response)) +
-  geom_boxplot(aes(group = paste(N_fish, response)), alpha = 0.2) + 
-  geom_line(data = Boot_LMER_RMSE %>%
-              group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
-              summarize(predicted_value = median(predicted_value))
-            ) +
-  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free") + ylab("RMSE") + xlab("Number of Fish in sampling event")
-
+models_RMSE <- models_RMSE %>% rbind(SER_MSE %>% rename(predicted_value = RMSE) %>% mutate(response = "SER_RMSE"))
 
 ## Compile Run Times
-LMER_times <- lapply(LMER_data, function(x){data.frame(V1 = c(x$run.time.lmer, x$run.time.boot.lmer), method = c("LMER", "Boot.LMER"))}) %>% 
+LMER_times <- lapply(LMER_data, function(x){data.frame(V1 = c(x$run.time.lmer["elapsed"], x$run.time.boot.lmer["elapsed"]), method = c("LMER", "Boot.LMER"))}) %>% 
   # compile as dataframe
-  bind_rows(.id = "model") %>%
-  t() %>% as.data.frame() %>% rownames_to_column("ID")  %>% 
+  bind_rows(.id = "ID") %>% as.data.frame() %>% 
   mutate(SPECIES_NAME = str_extract(ID, "Walleye|Lake Trout|Northern Pike"),
          CONTAMINANT = str_extract(ID, "^Hg|^As"),
-         run.time = as.numeric(str_extract(V1, "[[:digit:]\\.]+")), 
-         run.units = str_extract(V1, "[[:alpha:]]+")) %>%
-  group_by(SPECIES_NAME, CONTAMINANT) %>%
-  summarize(run.time = sum(run.time), 
-            run.units = unique(run.units)) %>%
-  mutate(method = "SER")
+         run.time = V1) %>%
+  group_by(SPECIES_NAME, CONTAMINANT, method) %>%
+  summarize(run.time = sum(run.time))
 
 ### Compare the results of predicted 1000 g fish
 
 ```
 
+
+#### Bayesian inference with Markov Chain Monte Carlo
+
+For STAN models, all models were run with chains and cores set to 4. We ran the models for [Hg] datasets using the RSTAN default settings. [As] were lower sample size, and so required higher iterations to achieve reliable model results, these were run with 9000 iterations and an adapt_delta setting of 0.99, this essentially makes acceptance criteria for posterior distributions during the adaptation period more strict, and lowers the step-size of the model, while increasing the computation time. The 50th percentile of predicted values were used to calculate residuals, RMSE~event~ and RMSE~global~ for these models.
+
+```{r RSTAN-models, cache = T}
+## Set up RSTAN function to run on data subsets
+
+contam.RSTAN <- function(x){
+  
+  ## Print out the model for troubleshooting purposes
+  message(str_c(unique(x %>% select(SPECIES_NAME, CONTAMINANT)), collapse = " "))
+  
+  ## Add some Lake Data For predictions
+  
+  pred.data <- x %>% 
+    mutate(VALUE = NA, 
+           VALUE_LOG = NA, 
+           LENGTH_CM = NA, 
+           LENGTH_CM_LOG = NA, 
+           WEIGHT_GRAM = 1000, 
+           VALUE_LOG_TEST = NA, 
+           VALUE_LOG_TRAIN = NA, 
+           test_train = FALSE,
+           WEIGHT_GRAM_LOG = log(1000)) %>% 
+    select(WEIGHT_GRAM_LOG, WATERBODY_CODE, EVENT, SPECIES_NAME, CONTAMINANT) %>%
+    distinct() %>% rbind(x %>% 
+    mutate(VALUE = NA, 
+           VALUE_LOG = NA, 
+           LENGTH_CM = NA, 
+           LENGTH_CM_LOG = NA, 
+           WEIGHT_GRAM = 500, 
+           VALUE_LOG_TEST = NA, 
+           VALUE_LOG_TRAIN = NA, 
+           test_train = FALSE,
+           WEIGHT_GRAM_LOG = log(500)) %>% 
+    select(WEIGHT_GRAM_LOG, WATERBODY_CODE, EVENT, SPECIES_NAME, CONTAMINANT) %>%
+    distinct())
+  
+  ## Grab the time it took to run the overall model using system.time ##
+  
+  ## Provide more iterations for Arsenic datasets that have fewer data points
+  if(nrow(x) < 500){
+    iterations = 9000; adapt_delta = 0.99
+    }else{
+    iterations = 2000; adapt_delta = 0.8}
+  
+  tot.time <- system.time(RSTAN_MASS <- stan_glmer(VALUE_LOG ~WEIGHT_GRAM_LOG+ (WEIGHT_GRAM_LOG|WATERBODY_CODE) + (1|EVENT),
+                     data = x[!is.na(x$VALUE_LOG_TRAIN), ], 
+                     cores=4, chains = 4, iter = iterations, adapt_delta = adapt_delta)) ## required some playing around with the iterations, default of 2000 was NOT enough for the As datasets, and was overkill for the large Hg datasets.
+  
+  fitted.data <- rstanarm::posterior_predict(RSTAN_MASS,
+                                                        newdata = x[is.na(x$VALUE_LOG_TRAIN),]
+)
+  fitted.data <- x[is.na(x$VALUE_LOG_TRAIN),] %>% 
+    cbind(t(apply(fitted.data, 2, function(x){quantile(x, probs = c(0.025, 0.5, 0.975))}))) %>% 
+    rename(RSTAN_posterior_q2p5 = `2.5%`, 
+           RSTAN_posterior_q50 = `50%`,
+           RSTAN_posterior_q97p5 = `97.5%`) %>%
+    mutate(resid_log_rstan = VALUE_LOG - RSTAN_posterior_q50, 
+           resid_rstan = exp(VALUE_LOG) - exp(RSTAN_posterior_q50))
+  ## Get predicted data for 1000g fishes
+  
+  RSTAN_MASS_predictions <- rstanarm::posterior_predict(RSTAN_MASS,
+                                                        newdata = pred.data
+)
+  RSTAN_MASS_predictions <- pred.data %>% 
+    cbind(t(apply(RSTAN_MASS_predictions, 2, function(x){quantile(x, probs = c(0.025, 0.5, 0.975))}))) %>% 
+    rename(RSTAN_posterior_q2p5 = `2.5%`, 
+           RSTAN_posterior_q50 = `50%`,
+           RSTAN_posterior_q97p5 = `97.5%`)
+  ## Compile model effects ranges
+  
+  estimates <- as.data.frame(as.matrix(RSTAN_MASS))
+  estimates <- apply(estimates, 2, function(x){quantile(x, probs = c(0.025, 0.5, 0.975))}) %>% t() %>% as.data.frame() %>% 
+    rename(RSTAN_posterior_q2p5 = `2.5%`, 
+           RSTAN_posterior_q50 = `50%`,
+           RSTAN_posterior_q97p5 = `97.5%`) %>% 
+    rownames_to_column("parameter")
+  
+  ## Compile results
+  results = list(data = x[!is.na(x$VALUE_LOG_TRAIN), ] %>% cbind(resid_log_rstan = resid(RSTAN_MASS)), 
+                 fits = fitted.data, 
+                 estimates = estimates,
+                 predicted.1000g = RSTAN_MASS_predictions, 
+                 run.time = tot.time)
+}
+
+## Prepare data for INLA modelling
+
+RSTAN_data <- all_contaminants %>% 
+  group_by(CONTAMINANT, SPECIES_NAME) %>%
+  split(list(.$CONTAMINANT, .$SPECIES_NAME)) %>%
+  map(~ contam.RSTAN(.x))
+
+## Cache this dataset, because TAKES FOREVER
+save(RSTAN_data, file = "out_workspaces/RSTAN_models.RDS")
+
+RSTAN_data_by_N <- RSTAN_data %>% 
+  map(~ rbind(.x$data, .x$fits)) %>% 
+  bind_rows() %>% 
+  rename(RSTAN_log_fit = RSTAN_posterior_q50, RSTAN_log_lwr = RSTAN_posterior_q2p5, RSTAN_log_upr = RSTAN_posterior_q97p5, RSTAN_log_resid = resid_log_rstan, RSTAN_resid = resid_rstan) %>% 
+  ## ## Calculate accuracy of Contaminant predictions by this method as well as model accuracies using RMSE
+  group_by(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT) %>% 
+  mutate(N_fish = sum(!is.na(VALUE_LOG_TRAIN))) %>%
+  filter(!is.na(VALUE_LOG_TEST)) %>%
+  mutate(RSTAN_RMSE = sqrt(mean(RSTAN_log_resid^2))) %>% 
+  ## Compare similar sample sizes from each N_fish category - lowest 25th percentile
+  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>% 
+    mutate(sample_num = n()) %>% 
+    group_by(CONTAMINANT, SPECIES_NAME) %>%
+    mutate(sampling_num = as.integer(quantile(sample_num, 0.25)), 
+           n_samps = as.integer(sample_num - sampling_num)) %>%
+  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>% 
+    # this filters the samples to a random sample of lakes with the 25th percentile of representative sample lakes, so that the graphing comparison of boxplots is less biased by unbalanced sample numbers
+    mutate(keep = ifelse(sampling_num < sample_num, sample(c(rep(FALSE, times = unique(n_samps)), rep(TRUE, times = unique(sampling_num))), unique(sample_num)), TRUE)) %>% 
+    filter(keep) 
+
+## Get distinct individual residuals compiled and added to other model results
+
+models_accuracy_by_N <- RSTAN_data_by_N %>% 
+  dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, VALUE, WEIGHT_GRAM, VALUE_LOG, WEIGHT_GRAM_LOG, RSTAN_log_fit, RSTAN_log_resid, RSTAN_resid, N_fish) %>%
+    pivot_longer(cols = c(RSTAN_log_fit, RSTAN_log_resid, RSTAN_resid), names_to = "response", values_to = "predicted_value") %>% 
+    rbind(models_accuracy_by_N)
+
+## Get data from overall model fits compiled and added to other model results
+
+models_RMSE <- RSTAN_data_by_N %>% 
+  dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, N_fish, RSTAN_RMSE) %>% 
+  distinct() %>%
+  pivot_longer(cols = c(RSTAN_RMSE), names_to = "response", values_to = "predicted_value") %>% 
+  rbind(models_RMSE)
+
+## Compile Run Times
+RSTAN_times <- lapply(RSTAN_data, function(x){data.frame(V1 = c(x$run.time["elapsed"]), method = "RSTAN")}) %>% 
+  # compile as dataframe
+  bind_rows(.id = "ID") %>% as.data.frame() %>% 
+  mutate(SPECIES_NAME = str_extract(ID, "Walleye|Lake Trout|Northern Pike"),
+         CONTAMINANT = str_extract(ID, "^Hg|^As"),
+         run.time = V1) %>%
+  group_by(SPECIES_NAME, CONTAMINANT, method) %>%
+  summarize(run.time = sum(run.time))
+
+
+```
+
+
+#### Approximate Bayesian inference using integrated nested Laplace approximation
+
+INLA models were run with precision of priors set to 0.001, and the formula structure was entered for the "iid2d" model to account for the covariance of the random effects due to waterbody. The 50th percentile of predicted values were used to calculate residuals, RMSE~event~ and RMSE~global~ for these models. 
 
 ```{r INLA-models, cache = T}
 
@@ -469,16 +652,27 @@ contam.INLA <- function(x){
            VALUE_LOG_TRAIN = NA, 
            test_train = FALSE,
            WEIGHT_GRAM_LOG = log(1000)) %>% 
+    distinct() %>% rbind(
+      x %>% 
+    mutate(VALUE = NA, 
+           VALUE_LOG = NA, 
+           LENGTH_CM = NA, 
+           LENGTH_CM_LOG = NA, 
+           WEIGHT_GRAM = 1000, 
+           VALUE_LOG_TEST = NA, 
+           VALUE_LOG_TRAIN = NA, 
+           test_train = FALSE,
+           WEIGHT_GRAM_LOG = log(500)) %>% 
     distinct()
+    )
   
   x <- x %>% rbind(pred.data)
   
-  ## Grab the time it took to run the overall model ##
-  tot.time <- Sys.time()
+  ## Grab the time it took to run the overall model using system.time ##
   
   ## Add dummy variable for the random effects
   
-  INLA_MASS <- inla(VALUE_LOG_TRAIN ~WEIGHT_GRAM_LOG+ 
+  tot.time <- system.time(INLA_MASS <- inla(VALUE_LOG_TRAIN ~WEIGHT_GRAM_LOG+ 
                       #' The next two lines code for the random slopes effect due to waterbody, - basically codes for the random effect of the 
                       #' two variables, expecting covariance of these variables  
                       #' See the documentation for the description of this implementation 'inla.doc("iid2d")'
@@ -493,9 +687,7 @@ contam.INLA <- function(x){
                      control.compute = list(
                        cpo = TRUE
                      )
-                    )
-  
-  tot.time <- Sys.time()-tot.time
+                    ))
   
   fitted.data <- data.frame(WATERBODY_CODE = x$WATERBODY_CODE,
                        SAMPLE_YEAR = x$SAMPLE_YEAR, 
@@ -556,7 +748,8 @@ INLA_data <- all_contaminants %>%
   split(list(.$CONTAMINANT, .$SPECIES_NAME)) %>%
   map(~ contam.INLA(.x))
 
-
+## Cache this dataset, because TAKES FOREVER
+save(INLA_data, file = "out_workspaces/INLA_models.RDS")
 
 INLA_data_by_N <- INLA_data %>% 
   map(~ rbind(.x$data %>% mutate(VALUE_LOG_TRAIN = VALUE_LOG, VALUE_LOG_TEST = NA), .x$fits %>% mutate(VALUE_LOG_TRAIN = NA, VALUE_LOG_TEST = VALUE_LOG))) %>% 
@@ -583,7 +776,7 @@ INLA_data_by_N <- INLA_data %>%
 models_accuracy_by_N <- INLA_data_by_N %>% 
   dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, VALUE, WEIGHT_GRAM, VALUE_LOG, WEIGHT_GRAM_LOG, INLA_log_fit, INLA_log_resid, INLA_resid, N_fish) %>%
     pivot_longer(cols = c(INLA_log_fit, INLA_log_resid, INLA_resid), names_to = "response", values_to = "predicted_value") %>% 
-    rbind(Boot_LMER_accuracy_by_N)
+    rbind(models_accuracy_by_N)
 
 ## Get data from overall model fits compiled and added to other model results
 
@@ -591,34 +784,31 @@ models_RMSE <- INLA_data_by_N %>%
   dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, N_fish, INLA_RMSE) %>% 
   distinct() %>%
   pivot_longer(cols = c(INLA_RMSE), names_to = "response", values_to = "predicted_value") %>% 
-  rbind(Boot_LMER_RMSE)
+  rbind(models_RMSE)
 
-## plot the accuracy by weight of fish
-ggplot(models_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + geom_point(alpha = 0.2) +
-  geom_smooth() + geom_vline(xintercept = 1000, color = "red") +
-  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free")
-
-## plot the accuracy of fish by the number of fish used for the estimate
-ggplot(models_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid")), aes(N_fish, predicted_value, color = response)) + 
-  geom_boxplot(aes(group = paste(N_fish, response))) + 
-  geom_line(data = Boot_LMER_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid")) %>%
-              group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
-              summarize(predicted_value = median(predicted_value))) + 
-  facet_wrap(CONTAMINANT~SPECIES_NAME, scales = "free")
-
-
-# plot model accuracies against number of fish used to produce the model
-ggplot(models_RMSE, aes(N_fish, predicted_value, color = response)) +
-  geom_boxplot(aes(group = paste(N_fish, response)), alpha = 0.2) + 
-  geom_line(data = Boot_LMER_RMSE %>%
-              group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
-              summarize(predicted_value = median(predicted_value))
-            ) +
-  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free") + ylab("RMSE") + xlab("Number of Fish in sampling event")
-
+## Compile Run Times
+INLA_times <- lapply(INLA_data, function(x){data.frame(V1 = c(x$run.time["elapsed"]), method = "INLA")}) %>% 
+  # compile as dataframe
+  bind_rows(.id = "ID") %>% as.data.frame() %>% 
+  mutate(SPECIES_NAME = str_extract(ID, "Walleye|Lake Trout|Northern Pike"),
+         CONTAMINANT = str_extract(ID, "^Hg|^As"),
+         run.time = V1) %>%
+  group_by(SPECIES_NAME, CONTAMINANT, method) %>%
+  summarize(run.time = sum(run.time))
 
 
 ```
+
+## Comparing accuracy of predictions across model types
+
+We compared model residuals of fish in 500 g and 1000 g size ranges (as calculated by the actual test values subtracted from the predicted values) to visualize the range in predictive error for each approach, the RMSE~event~ for each of the modelling approaches, as well as the RMSE~global~ of each model against the runtime required for each approach. 
+
+# Results
+
+## Model implementation 
+Application of each approach increased in difficulty, going from SER<LMER<STAN<INLA. SER and LMER approaches were simple enough that any beginner R user could implement them quickly, while there were more documentation and reading requirements to implement the RSTAN and INLA models. There is a higher risk of incorrect implementation of INLA models with the current INLA package implementation, since the model formula input deviates from the typical R notation. There is thorough documentation of the model notation in the INLA package, but it is nonetheless a consideration in the implementation of this approach, as it added complexity when assessing the nested random effect of waterbody and sampling event. The [As] models were generally more difficult to fit due to lower sample sizes, requiring different settings, while [Hg] models ran well on the default settings of the lmer, rstan and inla functions. 
+
+## Model performance by sampling event
 
 
 ```{r RMSE_N, caption= "Residual mean squared error of predicted test data from sampling events trained with different numbers of fish derived from a random sampling approach. RMSE of test set sampling events are compared to the number of fish used from the sampling event that were included in the training dataset."}
@@ -635,24 +825,74 @@ ggplot(models_RMSE, aes(N_fish, predicted_value, color = response)) +
 ```
 
 
+## Error distribution amongst models
+
 ```{r resids_fishsize}
 ## plot the accuracy by weight of fish
-ggplot(models_accuracy_by_N %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + geom_point(alpha = 0.2) +
-  geom_smooth() + geom_vline(xintercept = 1000, color = "red") +
-  facet_grid(CONTAMINANT~SPECIES_NAME, scales = "free")
+ggplot(models_accuracy_by_N %>% filter(WEIGHT_GRAM >= 250 & WEIGHT_GRAM <= 1500) %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid", "RSTAN_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + 
+  geom_point(alpha = 0.2) +
+  #geom_smooth() + 
+  geom_vline(xintercept = c(500, 1000), color = "red") +
+  ylab("Residual") +
+  geom_smooth() +
+  facet_grid(CONTAMINANT+SPECIES_NAME~response, scales = "free") + 
+  theme_minimal()
 
+## plot the accuracy by weight of fish
+ggplot(models_accuracy_by_N %>% filter(WEIGHT_GRAM >= 250 & WEIGHT_GRAM <= 1500) %>% filter(N_fish < 5) %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid", "RSTAN_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + 
+  geom_point(alpha = 0.2) +
+  #geom_smooth() + 
+  geom_vline(xintercept = c(500, 1000), color = "red") +
+  ylab("Residual") +
+  geom_smooth() +
+  facet_grid(CONTAMINANT+SPECIES_NAME~response, scales = "free") + 
+  theme_minimal() + 
+  ggtitle("Residuals for small n lakes (4 or fewer)")
 ```
 
-
+## Relative computational requirements
 ```{r RMSEvsTime}
 ## Calculate overall RMSE of each model, and total time to run model (Models are at level of each SPECIES_NAME - CONTAMINANT combination)
+models_overallRMSE <- models_accuracy_by_N %>% 
+  filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid")) %>% 
+  group_by(SPECIES_NAME, CONTAMINANT, response) %>% 
+  summarize(rmse = sqrt(mean(predicted_value^2))) 
+### Compile times into one dataframe
+model_times <- rbind(SER_times, LMER_times, RSTAN_times, INLA_times)
 
 ## plot the model accuracies vs the time required to run each model
+# indicate the n used for each model as well
 
 ```
 
 
-```{r predictions1000g}
-#Plot comparison of predicted Hg and As content of 1000g fish for each technique against The SER value
+## Prediction results
+
+```{r predictions}
+#Plot comparison of predicted Hg and As content of 500g and 1000g fish for each technique against The SER value
 
 ```
+
+
+# Discussion
+
+We hypothesize that mixed modelling approaches will provide comparable or more accurate predictions of contaminant concentrations to SER.
+The [approaches] approaches were demonstrated to be ... compared to the SER approach. ...
+
+
+We also expect that Bayesian approaches will have improved accuracy compared to more simplistic implementations of linear mixed models, especially for predictions in lakes with low sample numbers. 
+... were able to predict [As] and [Hg] concentrations in fish tissue to the lmer and bootstrapped lmer approach level of accuracy in lakes with less than 4 fish, the limit we had assigned for prediction using our SER approach.  ... Error distribution for the Bayesian models was more biased towards overestimation ... .   
+
+
+We expect that INLA will outperform STAN models in terms of computation time, but have similar predictive accuracy.
+While both Bayesian approaches performed ... INLA models were much less computationally intensive. ... . 
+
+
+# Supplemental Tables
+
+```{r model-estimates}
+## This chunk creates a table output of the model estimates from each approach. 
+
+```
+
+# References
