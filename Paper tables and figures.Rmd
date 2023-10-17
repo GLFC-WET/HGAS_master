@@ -27,6 +27,7 @@ library(effects)
 library(sjPlot)
 library(rstanarm)
 library(tidyverse)
+library(ggpubr)
 ```
 
 # Abstract
@@ -100,7 +101,9 @@ all_contaminants <- rbind(hg, As) %>%
   mutate(EVENT = paste(WATERBODY_CODE, SAMPLE_YEAR, sep = "_")) %>%
   ### Add a split for test/train data
   group_by() %>%
-  mutate(test_train = sample(c(TRUE, FALSE), size = n(), replace = T)) %>%
+  mutate(test_train = !((WEIGHT_GRAM >= 400 & WEIGHT_GRAM <= 600)|(WEIGHT_GRAM >= 900 & WEIGHT_GRAM <= 1100))) %>%
+  ## used rbinom to sample the fish in the targeted size range at a probability of 70% that they would be included in the test dataset.
+  mutate(test_train = ifelse(!test_train, rbinom(sum(!test_train), 1, 0.5), test_train)) %>%
   mutate(VALUE_LOG_TEST = ifelse(!test_train, VALUE_LOG, NA), 
          VALUE_LOG_TRAIN = ifelse(test_train, VALUE_LOG, NA)) %>%
   group_by(CONTAMINANT, SAMPLE_YEAR, WATERBODY_CODE, SPECIES_NAME) %>% 
@@ -109,8 +112,15 @@ all_contaminants <- rbind(hg, As) %>%
 
 fish_amounts <- all_contaminants %>% group_by(CONTAMINANT) %>% summarize(total_fish = n())
 
+ranges <- all_contaminants %>% 
+  group_by(WATERBODY_CODE, SAMPLE_YEAR) %>% 
+  summarize(range_wt_train = str_c(WEIGHT_GRAM[test_train == T], collapse = ", "), 
+            range_wt_test = str_c(WEIGHT_GRAM[test_train == F], collapse = ", "),
+            N_train = sum(test_train), 
+            N_test = sum(!test_train),
+            N_fish = n())
 ```
-In total, the final dataset we used included [Hg] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "Hg"]` fish and [As] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "As"]` fish. This dataset was randomly sampled to create test and train datasets (Tables \@ref(tab:sampling-events-summary-train), \@ref(tab:sampling-events-summary-test)) 
+In total, the final dataset we used included [Hg] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "Hg"]` fish and [As] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "As"]` fish. Fish from the targeted weight classes were randomly sampled to create a test dataset with ~50% of the fish within 400 - 600g and 900 - 1100g and a train dataset with the remaining data from other fish size classes, as well as the remaining ~50% of fish in the targeted size classes (Tables \@ref(tab:sampling-events-summary-train), \@ref(tab:sampling-events-summary-test)) 
 
 
 ```{r sampling-events-summary-train}
@@ -143,17 +153,19 @@ lakes_SER <- all_contaminants %>%
 all_contaminants %>% left_join(lakes_SER) %>%
   group_by(WATERBODY_CODE) %>% 
   mutate(SER_excluded = !grepl(unique(WATERBODY_CODE), `Lakes in SER`)) %>%
+  group_by(CONTAMINANT, SAMPLE_YEAR, WATERBODY_CODE, SPECIES_NAME) %>% 
+  mutate(totalfish = sum(!is.na(VALUE_LOG_TRAIN))) %>%
   filter(!is.na(VALUE_LOG_TEST)) %>%
   group_by(CONTAMINANT, SAMPLE_YEAR, WATERBODY_CODE, SPECIES_NAME) %>% 
-  summarize(totalfish = n(), SER_excluded = unique(SER_excluded)) %>% 
+  summarize(totalfish = unique(totalfish), SER_excluded = unique(SER_excluded)) %>% 
   group_by(CONTAMINANT, SPECIES_NAME) %>%
-  summarize(`Total number of events` = n(), 
-            `Events with more than one fish` = sum(totalfish > 1),
-            `Events with at least 5 fish` = sum(totalfish > 4),
-            `Number of events excluded from SER` = sum(SER_excluded),
-            `Number of lakes excluded from SER` = length(unique(WATERBODY_CODE[SER_excluded])), 
+  summarize(`Total number of events in prediction sample` = n(), 
+            `Events modelled with more than one fish` = sum(totalfish > 1),
+            `Events modelled with at least 5 fish` = sum(totalfish > 4),
+            `Number of event predictions excluded from SER` = sum(SER_excluded),
+            `Number of lakes predictions excluded from SER` = length(unique(WATERBODY_CODE[SER_excluded])), 
             #`Lakes excluded from SER` = str_c(unique(WATERBODY_CODE[!WATERBODY_CODE %in% WATERBODY_CODE[totalfish > 4]]), collapse = ", ")
-            `Total number of unique lakes` = length(unique(WATERBODY_CODE))) %>% 
+            `Total number of unique lakes included in predictions` = length(unique(WATERBODY_CODE))) %>% 
   knitr::kable(caption = "Summary of events (unique year and lake combinations) for each contaminant and species in the test dataset used in this analysis.")
 
 ```
@@ -421,6 +433,7 @@ LMER_data <- all_contaminants %>%
 
 ## Cache this dataset, because TAKES FOREVER
 save(LMER_data, file = "out_workspaces/LMER_models.RDS")
+load("out_workspaces/LMER_models.RDS")
 
 LMER_bootstraps_data <- LMER_data %>% 
   map(~ cbind(.x$data, .x$bootstrapped.fits)) %>% 
@@ -572,6 +585,7 @@ RSTAN_data <- all_contaminants %>%
 
 ## Cache this dataset, because TAKES FOREVER
 save(RSTAN_data, file = "out_workspaces/RSTAN_models.RDS")
+load("out_workspaces/RSTAN_models.RDS")
 
 RSTAN_data_by_N <- RSTAN_data %>% 
   map(~ rbind(.x$data, .x$fits)) %>% 
@@ -815,7 +829,7 @@ Application of each approach increased in difficulty, going from SER<LMER<STAN<I
 # plot model accuracies against number of fish used to produce the model
 ggplot(models_RMSE, aes(N_fish, predicted_value, color = response)) +
   geom_boxplot(aes(group = paste(N_fish, response)), alpha = 0.2) + 
-  geom_line(data = Boot_LMER_RMSE %>%
+  geom_line(data = models_RMSE %>%
               group_by(SPECIES_NAME, CONTAMINANT, N_fish, response)%>% 
               summarize(predicted_value = median(predicted_value))
             ) +
@@ -829,7 +843,7 @@ ggplot(models_RMSE, aes(N_fish, predicted_value, color = response)) +
 
 ```{r resids_fishsize}
 ## plot the accuracy by weight of fish
-ggplot(models_accuracy_by_N %>% filter(WEIGHT_GRAM >= 250 & WEIGHT_GRAM <= 1500) %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid", "RSTAN_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + 
+ggplot(models_accuracy_by_N %>% filter((WEIGHT_GRAM >= 400 & WEIGHT_GRAM <= 600)|(WEIGHT_GRAM >= 900 & WEIGHT_GRAM <= 1100)) %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid", "RSTAN_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + 
   geom_point(alpha = 0.2) +
   #geom_smooth() + 
   geom_vline(xintercept = c(500, 1000), color = "red") +
@@ -837,14 +851,49 @@ ggplot(models_accuracy_by_N %>% filter(WEIGHT_GRAM >= 250 & WEIGHT_GRAM <= 1500)
   geom_smooth() +
   facet_grid(CONTAMINANT+SPECIES_NAME~response, scales = "free") + 
   theme_minimal()
+```
 
+```{r resids-small-eventsize}
 ## plot the accuracy by weight of fish
-ggplot(models_accuracy_by_N %>% filter(WEIGHT_GRAM >= 250 & WEIGHT_GRAM <= 1500) %>% filter(N_fish < 5) %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid", "RSTAN_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + 
+ggplot(models_accuracy_by_N %>% filter((WEIGHT_GRAM >= 400 & WEIGHT_GRAM <= 600)|(WEIGHT_GRAM >= 900 & WEIGHT_GRAM <= 1100)) %>% filter(N_fish < 5) %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid", "RSTAN_resid")), aes(WEIGHT_GRAM, predicted_value, color = response)) + 
   geom_point(alpha = 0.2) +
   #geom_smooth() + 
   geom_vline(xintercept = c(500, 1000), color = "red") +
   ylab("Residual") +
   geom_smooth() +
+  facet_grid(CONTAMINANT+SPECIES_NAME~response, scales = "free") + 
+  theme_minimal() + 
+  ggtitle("Residuals for small n lakes (4 or fewer)")
+```
+
+```{r resids-percent}
+## plot the accuracy by the amount of contaminant being predicted
+ggplot(models_accuracy_by_N %>% filter((WEIGHT_GRAM >= 400 & WEIGHT_GRAM <= 600)|(WEIGHT_GRAM >= 900 & WEIGHT_GRAM <= 1100)) %>% filter(N_fish < 10) %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid", "RSTAN_resid")), aes(VALUE, predicted_value, color = response)) + 
+  geom_point(alpha = 0.1) +
+  geom_hline(yintercept = c(0.1, -0.1), color = "red") +
+  ylab("Residual") +
+  facet_grid(CONTAMINANT+SPECIES_NAME~response, scales = "free") + 
+  theme_minimal() + 
+  ggtitle("Residuals for small n lakes (4 or fewer)")
+```
+
+```{r resids-percent-1000g}
+## plot the accuracy by the amount of contaminant being predicted
+ggplot(models_accuracy_by_N %>% filter((WEIGHT_GRAM >= 900 & WEIGHT_GRAM <= 1100)) %>% filter(N_fish < 10) %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid", "RSTAN_resid")), aes(VALUE, predicted_value, color = response)) + 
+  geom_point(alpha = 0.1) +
+  geom_hline(yintercept = c(0.1, -0.1), color = "red") +
+  ylab("Residual") +
+  facet_grid(CONTAMINANT+SPECIES_NAME~response, scales = "free") + 
+  theme_minimal() + 
+  ggtitle("Residuals for small n lakes (4 or fewer)")
+```
+
+```{r resids-percent-500g}
+## plot the accuracy by the amount of contaminant being predicted
+ggplot(models_accuracy_by_N %>% filter((WEIGHT_GRAM >= 400 & WEIGHT_GRAM <= 600)) %>% filter(N_fish > 12) %>% filter(response %in% c("LMER_resid", "boot_resid", "SER_residuals", "INLA_resid", "RSTAN_resid")), aes(VALUE, predicted_value, color = response)) + 
+  geom_point(alpha = 0.1) +
+  geom_hline(yintercept = c(0.1, -0.1), color = "red") +
+  ylab("Residual") +
   facet_grid(CONTAMINANT+SPECIES_NAME~response, scales = "free") + 
   theme_minimal() + 
   ggtitle("Residuals for small n lakes (4 or fewer)")
