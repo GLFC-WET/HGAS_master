@@ -2,3 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+HGASpaper_files/*
+HGASpaper_cache/*
+Paper-tables-and-figures_cache/*
+Paper-tables-and-figures_files/*
