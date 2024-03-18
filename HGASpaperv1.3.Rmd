@@ -924,6 +924,20 @@ lmer_mass_model <- function(x){
    results = list(data = data.out)
 }
 
+
+## First we produce the combinations of max #fish and #lakes included in models
+
+sets <- all_contaminants %>% dplyr::select(WATERBODY_CODE, CONTAMINANT, SPECIES_NAME, SAMPLE_YEAR) %>% distinct() %>% arrange(SPECIES_NAME, CONTAMINANT, WATERBODY_CODE, SAMPLE_YEAR) %>% group_by(WATERBODY_CODE, SPECIES_NAME, CONTAMINANT) %>%
+  summarize(multi.year = n()>1,
+            numyears = n(), 
+            years = str_c(SAMPLE_YEAR, collapse = ", "))
+
+
+Multi.year <- sets %>% group_by(SPECIES_NAME, CONTAMINANT) %>%
+  summarize(Multi.year = sum(multi.year),
+            one.year = sum(!multi.year), 
+            years.range = str_c(unique(unlist(str_extract_all(years, "[[:digit:]]+"))), collapse = ", "))
+
 #### Modelling as separate models by Contaminant ####
 if(!file.exists("out_workspaces/LMER_numfish_models.RDS")){
   ## Produce individual models for each contaminant/species combination
