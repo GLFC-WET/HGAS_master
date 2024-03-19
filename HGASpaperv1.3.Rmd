@@ -56,7 +56,7 @@ library(lme4)
 library(sf)
 library(INLA)
 library(effects)
-library(sjPlot)
+#library(sjPlot)
 library(rstanarm)
 library(tidyverse)
 library(ggpubr)
@@ -67,6 +67,8 @@ knitr::write_bib(file = 'packages.bib')
 # Select colours for consistent plots
 cust_cols <- c("black", "turquoise")
 names(cust_cols) <- c("5 fish or more", "less than 5 fish")
+
+keepfiles <- c("cust_cols")
 ```
 
 # Abstract
@@ -155,6 +157,9 @@ ranges <- all_contaminants %>%
             N_train = sum(test_train), 
             N_test = sum(!test_train),
             N_fish = n())
+
+keepfiles <- c("keepfiles", keepfiles, "all_contaminants")
+rm(list = ls()[!ls() %in% keepfiles])
 ```
 
 ```{r biases, include=FALSE}
@@ -527,6 +532,9 @@ predicted_data <- rbind(predicted_data, LMER_data %>%
          pred.fit = exp(fit), pred.lower = exp(lwr), 
          pred.upper = exp(upr), N_fish = NA)%>%
   dplyr::select(N_fish, pred.lower, pred.fit, pred.upper, WEIGHT_GRAM, CONTAMINANT, SPECIES_NAME, WATERBODY_CODE, SAMPLE_YEAR, method))
+
+keepfiles <- c(keepfiles, "models_RMSE", "models_accuracy_by_N", "predicted_data", "LMER_times", "SER_times")
+rm(list = ls()[!ls() %in% keepfiles])
 ```
 
 
@@ -684,6 +692,9 @@ predicted_data <- rbind(predicted_data, RSTAN_data %>%
          pred.fit = exp(RSTAN_posterior_q50), pred.lower = exp(RSTAN_posterior_q2p5), 
          pred.upper = exp(RSTAN_posterior_q97p5), N_fish = NA)%>%
   dplyr::select(N_fish, pred.lower, pred.fit, pred.upper, WEIGHT_GRAM, CONTAMINANT, SPECIES_NAME, WATERBODY_CODE, SAMPLE_YEAR, method))
+
+keepfiles <- c(keepfiles, "RSTAN_times")
+rm(list = ls()[!ls() %in% keepfiles])
 ```
 
 
@@ -870,6 +881,9 @@ predicted_data <- rbind(predicted_data, INLA_data %>%
          pred.fit = exp(INLA_posterior_q50), pred.lower = exp(INLA_posterior_q2p5), 
          pred.upper = exp(INLA_posterior_q97p5), N_fish = NA)%>%
   dplyr::select(N_fish, pred.lower, pred.fit, pred.upper, WEIGHT_GRAM, CONTAMINANT, SPECIES_NAME, WATERBODY_CODE, SAMPLE_YEAR, method))
+
+keepfiles <- c(keepfiles, "INLA_times")
+rm(list = ls()[!ls() %in% keepfiles])
 ```
 
 
@@ -886,6 +900,93 @@ To assess the predictive accuracy of each approach, we compared predictions of t
 
 
 We ran an additional analysis to determine if there was a threshold number of fish per sample event that, after which, no additional benefit to the predictive accuracy of the overall model was observed. To do this, we trained REML and INLA models that only allowed sampling events to have fish up to a particular threshold number to compare REML and Bayesian approaches. We used the less computationally intensive INLA approach to represent both Bayesian approaches, as INLA and MCMC were highly similar. This was run for every size between 5 and the maximum number of fish possible for the events in the dataset.  
+
+
+```{r samp-size-sets}
+
+## First we produce the combinations of max #fish and #lakes included in models for the threshold number of fish for each number of lakes
+
+sets <- all_contaminants %>% dplyr::select(WATERBODY_CODE, CONTAMINANT, SPECIES_NAME, SAMPLE_YEAR, N_fish, VALUE_LOG_TEST) %>% distinct() %>% arrange(SPECIES_NAME, CONTAMINANT, WATERBODY_CODE, SAMPLE_YEAR) %>% group_by(WATERBODY_CODE, SPECIES_NAME, CONTAMINANT) %>%
+  filter(sum(!is.na(VALUE_LOG_TEST)) != 0) %>% ## Do this to filter out cases where there is no test data for that lake
+  summarize(multi.year = n()>1,
+            numyears = n(), 
+            max_N_fish = max(N_fish),
+            years = str_c(SAMPLE_YEAR, collapse = ", "))
+
+
+Multi.year <- sets %>% group_by(SPECIES_NAME, CONTAMINANT) %>%
+  summarize(Multi.year = sum(multi.year),
+            one.year = sum(!multi.year), 
+            max_N_fish = max(max_N_fish),
+            years.range = str_c(unique(unlist(str_extract_all(years, "[[:digit:]]+"))), collapse = ", ")) %>% 
+  mutate(multi.tot.ratio = Multi.year/(Multi.year+one.year))
+
+## how many lakes at each N??
+lakeswithN <- all_contaminants %>% 
+  dplyr::select(WATERBODY_CODE, CONTAMINANT, SPECIES_NAME, SAMPLE_YEAR, N_fish, VALUE_LOG_TEST) %>% 
+  distinct() %>% 
+  arrange(SPECIES_NAME, CONTAMINANT, WATERBODY_CODE, SAMPLE_YEAR) %>%
+  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>%
+  summarize(numlakes = n(), 
+            years = str_c(SAMPLE_YEAR, collapse = ", ")) 
+
+## Make list of test and train sets for different scenarios - % of lakes that are multi-year, # of lakes, max # of fish
+
+reps = 10 ## define number of repetitions for each N
+
+## construct for loop that assembles list of samples to iterate through
+n_samples <- c()
+loop_count <- 1
+
+for(i in 1:nrow(Multi.year)){
+  set = Multi.year[i, ]
+  
+  for(num in 3:set$max_N_fish){
+      
+        ## get all samples for the species/contaminant combination
+        subsamp_data = all_contaminants%>% 
+          filter(SPECIES_NAME == set$SPECIES_NAME & CONTAMINANT == set$CONTAMINANT) %>%
+          arrange(desc(N_fish))
+  
+        
+        set_count = 1 ## keep track of the 'replicate' set that the sample is
+        ## get the number of unique lakes possible # restrict to just certain #'s of lakes to reduce loop
+        for(lakes in (2:length(unique(subsamp_data$WATERBODY_CODE)))[2:length(unique(subsamp_data$WATERBODY_CODE)) %in% c(2,3,5,7,9,10,15,20,30,40,50,75,100,150,200,250,300,500,750,1000)]){
+          
+           ## create new random test/training splits (10 for each max size)
+          for(s in 1:reps){
+            ## grab lake sets where at least one has the max_N of fish - ensures there is always a representation of the appropriate fish # in predictions
+          lake.at.N <- sample(unique(subsamp_data$WATERBODY_CODE[subsamp_data$N_fish >= num]), 1)
+          lake_set <- c(lake.at.N, sample(unique(subsamp_data$WATERBODY_CODE[subsamp_data$WATERBODY_CODE != lake.at.N]), lakes-1))
+            ## Subset the data training to just the identified lakes and then further subset the training data to just the target N observations
+            sample_set = subsamp_data %>% filter(WATERBODY_CODE %in% lake_set) %>%
+              group_by(WATERBODY_CODE, SAMPLE_YEAR) %>%
+              arrange(is.na(VALUE_LOG_TEST)) %>% 
+              mutate(N_fish = sum(is.na(VALUE_LOG_TEST)), 
+                     samp_num = min(num, N_fish)) %>% 
+              mutate(keep = ifelse(is.na(VALUE_LOG_TEST), 
+                         sample(c(rep(T, unique(samp_num)), 
+                                  rep(F, unique(N_fish)-unique(samp_num))),
+                                  unique(N_fish), replace = F), ## assigns "keep" to only training points that are up to the target N
+                         F)) %>%  
+              group_by() %>% 
+              mutate(VALUE_LOG_TRAIN = ifelse(keep, VALUE_LOG, NA)) ## reassigns the training data values
+   
+            write_rds(sample_set, paste0("temp/", paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, s, sep = "_"), ".rds"))
+            n_samples <- c(n_samples,  paste0("temp/", paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, s, sep = "_"), ".rds"))
+
+          }
+          
+        }
+        
+  }
+ 
+}
+
+keepfiles <- c(keepfiles, "n_samples")
+rm(list = ls()[!ls() %in% keepfiles])
+
+```
 
 
 ```{r lmer-models-max-sampsize, include=FALSE}
@@ -925,53 +1026,38 @@ lmer_mass_model <- function(x){
 }
 
 
-## First we produce the combinations of max #fish and #lakes included in models
-
-sets <- all_contaminants %>% dplyr::select(WATERBODY_CODE, CONTAMINANT, SPECIES_NAME, SAMPLE_YEAR) %>% distinct() %>% arrange(SPECIES_NAME, CONTAMINANT, WATERBODY_CODE, SAMPLE_YEAR) %>% group_by(WATERBODY_CODE, SPECIES_NAME, CONTAMINANT) %>%
-  summarize(multi.year = n()>1,
-            numyears = n(), 
-            years = str_c(SAMPLE_YEAR, collapse = ", "))
-
-
-Multi.year <- sets %>% group_by(SPECIES_NAME, CONTAMINANT) %>%
-  summarize(Multi.year = sum(multi.year),
-            one.year = sum(!multi.year), 
-            years.range = str_c(unique(unlist(str_extract_all(years, "[[:digit:]]+"))), collapse = ", "))
-
 #### Modelling as separate models by Contaminant ####
 if(!file.exists("out_workspaces/LMER_numfish_models.RDS")){
   ## Produce individual models for each contaminant/species combination
-  LMER_fish_data <- lapply(5:50, function(fishnum){print(fishnum)
-    all_contaminants %>%
-    mutate(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT) %>%
-    arrange(is.na(VALUE_LOG_TEST)) %>% 
-    mutate(N_fish = sum(is.na(VALUE_LOG_TEST)), 
-      samp_num = min(fishnum, N_fish)) %>%
-    mutate(keep = ifelse(is.na(VALUE_LOG_TEST), 
-                         sample(c(rep(T, unique(samp_num)), 
-                                  rep(F, unique(N_fish)-unique(samp_num))),
-                                  unique(N_fish), replace = F),
-                         F))%>%
-    group_by() %>% 
-    mutate(VALUE_LOG_TRAIN = ifelse(keep, VALUE_LOG, NA)) %>%
-      split(list(.$CONTAMINANT, .$SPECIES_NAME)) %>%
-      map(~ lmer_bootstrap_prep(.x)) %>% 
-      map(~ lmer_mass_model(.x)) %>%
-      map(~ .x$data) %>% 
-        bind_rows() %>% 
+  LMER_fish_data <- lapply(n_samples, function(x){
+    
+    if(sum(!is.na(readRDS(x)$VALUE_LOG_TEST)) < 3){ 
+      out = NULL 
+    }else{temp <- (readRDS(x) %>% lmer_bootstrap_prep() %>% 
+      lmer_mass_model())$data %>% 
         filter(is.na(VALUE_LOG_TRAIN)) %>%
         rename(REML_log_resid = LMER_resid, REML_logfit = LMER_logfit, REML_fit = LMER_fit) %>%
       dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, VALUE, WEIGHT_GRAM, VALUE_LOG, WEIGHT_GRAM_LOG, REML_fit, REML_log_resid, REML_logfit) %>%
-    pivot_longer(cols = c(REML_fit, REML_log_resid, REML_logfit), names_to = "response", values_to = "predicted_value")  %>%
-        mutate(maxfish = fishnum)})
+    pivot_longer(cols = c(REML_fit, REML_log_resid, REML_logfit), names_to = "response", values_to = "predicted_value") %>% 
+         filter(response %in% c("REML_logfit")) %>% 
+  mutate(predicted = exp(predicted_value)) %>%
+      list(mod = cor.test(.$predicted,.$VALUE))
+    
+    out <- data.frame(Cor = round(temp$mod$estimate, 2),
+                     p = round(temp$mod$p.value, 2))}
+    
+    return(out)
+    })
   
-  LMER_fish_data <- bind_rows(LMER_fish_data)
+  LMER_fish_data <- LMER_fish_data %>% discard(~ is.null(.x)) %>% bind_rows(.id = "set")
   ## Cache this dataset, because TAKES FOREVER
     save(LMER_fish_data, file = "out_workspaces/LMER_numfish_models.RDS")
 } else {
   load("out_workspaces/LMER_numfish_models.RDS")
 }
 
+keepfiles <- c(keepfiles, "LMER_fish_data")
+rm(list = ls()[!ls() %in% keepfiles])
 ```
 
 
@@ -1041,39 +1127,39 @@ contam.INLA.N <- function(x){
 
 if(!file.exists("out_workspaces/INLA_numfish_models.RDS")){
   ## Produce individual models for each contaminant/species combination
-  INLA_fish_data <- lapply(5:50, function(fishnum){print(fishnum)
-    all_contaminants %>%
-    mutate(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT) %>%
-    arrange(is.na(VALUE_LOG_TEST)) %>% 
-    mutate(N_fish = sum(is.na(VALUE_LOG_TEST)), 
-      samp_num = min(fishnum, N_fish)) %>%
-    mutate(keep = ifelse(is.na(VALUE_LOG_TEST), 
-                         sample(c(rep(T, unique(samp_num)), 
-                                  rep(F, unique(N_fish)-unique(samp_num))),
-                                  unique(N_fish), replace = F),
-                         F))%>% 
-    group_by() %>% 
-    mutate(VALUE_LOG_TRAIN = ifelse(keep, VALUE_LOG, NA)) %>%
-    group_by(CONTAMINANT, SPECIES_NAME) %>%
+  INLA_fish_data <- lapply(n_samples, function(x){
+    
+    if(sum(!is.na(readRDS(x)$VALUE_LOG_TEST)) < 3){ 
+      out = NULL 
+    }else{
+    (readRDS(x) %>%
     mutate(WATERBODY_CODE1 = as.integer(as.factor(WATERBODY_CODE))) %>% # for inla model, this needs to be an integer
     mutate(WATERBODY_CODE2 = WATERBODY_CODE1 + max(WATERBODY_CODE1)) %>% # for inla model, this needs to be a different set of integers
     mutate(n_waterbody = n_distinct(WATERBODY_CODE)) %>% # for inla model, we need to have a number of lakes assigned for setting the appropriate attributes for a two-dimensional model
-    split(list(.$CONTAMINANT, .$SPECIES_NAME)) %>%
-    map(~ contam.INLA.N(.x)) %>% 
- map(~ rbind(.x$fits %>% mutate(VALUE_LOG_TRAIN = NA, VALUE_LOG_TEST = log(VALUE)))) %>% 
-  bind_rows() %>% 
+    contam.INLA.N())$fits %>% 
   rename(INLA_fit = INLA_posterior_q50, INLA_lwr = INLA_posterior_q2p5, INLA_upr = INLA_posterior_q97p5, INLA_log_resid = resid_log_inla, INLA_resid = resid_inla) %>% 
   dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, CONTAMINANT, VALUE, WEIGHT_GRAM, VALUE_LOG, WEIGHT_GRAM_LOG, INLA_fit, INLA_log_resid, INLA_resid) %>%
-    pivot_longer(cols = c(INLA_fit, INLA_log_resid, INLA_resid), names_to = "response", values_to = "predicted_value") %>%
-    mutate(maxfish = fishnum)})
+    pivot_longer(cols = c(INLA_fit, INLA_log_resid, INLA_resid), names_to = "response", values_to = "predicted_value")%>% 
+         filter(response %in% c("INLA_fit")) %>%
+  mutate(predicted = exp(predicted_value)) %>%
+      list(mod = cor.test(.$predicted,.$VALUE))
+      
+      out <- data.frame(Cor = round(temp$mod$estimate, 2),
+                     p = round(temp$mod$p.value, 2))
+    }
+    return(out)})
   
-  INLA_fish_data <- bind_rows(INLA_fish_data)
+  
+  INLA_fish_data <- INLA_fish_data %>% discard(~ is.null(.x)) %>% bind_rows(.id = "set")
+
   ## Cache this dataset, because TAKES FOREVER
     save(INLA_fish_data, file = "out_workspaces/INLA_numfish_models.RDS")
 } else {
   load("out_workspaces/INLA_numfish_models.RDS")
 }
 
+keepfiles <- c(keepfiles, "INLA_fish_data")
+rm(list = ls()[!ls() %in% keepfiles])
 ```
 
 
@@ -1257,62 +1343,13 @@ We found that mixed effects approaches performed better than SER by enabling pre
 
 
 ```{r pred-fish-num, fig.width=8, fig.height=10, fig.cap = "Predicted concentration of [As] and [Hg] in fish tissue of 400-600g and 900-1100g fish compared to known values for models built with different maximum numbers of fish in training events. Points represent the correlations of predicted contaminant concentrations to measured values for the test dataset.", include=TRUE}
-max.n.fish <- Boot_LMER_data_by_N %>% 
-  group_by(CONTAMINANT, SPECIES_NAME) %>%
-  summarize(max_N_fish = max(N_fish))
 
 ## Lm summaries for REML
-lm_sums_LMER <- LMER_fish_data %>% 
-         filter(response %in% c("REML_logfit")) %>% 
-  mutate(predicted = exp(predicted_value)) %>%
-  group_by(CONTAMINANT, maxfish) %>%
-  mutate(text.x = ifelse(CONTAMINANT=="As", 0.075, 1.5), text.y =0.005) %>%
-  group_by() %>%
-  split(list(.$CONTAMINANT, .$SPECIES_NAME, .$response, .$maxfish)) %>%
-  discard(~ nrow(.x)<3) %>%
-    map(~ list(mod = cor.test(.x$predicted,.x$VALUE), 
-               text.x = unique(.x$text.x), 
-               text.y = unique(.x$text.y))) %>%
-    map(~ data.frame(Cor = round(.x$mod$estimate, 2),
-                     p = round(.x$mod$p.value, 2),
-                     text.x = .x$text.x, 
-                     text.y = .x$text.y)) %>%
-  bind_rows(.id = "set") %>%
-  mutate(CONTAMINANT = str_extract(set, "^Hg|^As"), 
-         SPECIES_NAME = str_extract(set, "Lake Trout|Walleye|Northern Pike"),
-         response = factor(str_extract(set, "SER|boot_REML|REML|MCMC|INLA_ll|INLA"), levels = c("SER", "REML", "boot_REML", "MCMC", "INLA", "INLA_ll")),
-         maxfish = str_extract(set, "[[:digit:]]+"))
+lm_sums_LMER <- LMER_fish_data 
 
-lm_sums_LMER <- lm_sums_LMER %>% 
-  left_join(max.n.fish) %>% 
-  mutate(keep = as.numeric(maxfish) <= max_N_fish) %>% 
-  filter(keep)
-
-max.n.fish <- INLA_data_by_N %>% 
-  group_by(CONTAMINANT, SPECIES_NAME) %>%
-  summarize(max_N_fish = max(N_fish))
 
 ## Lm summaries for INLA
-lm_sums_INLA <- INLA_fish_data %>% 
-         filter(response %in% c("INLA_fit")) %>% 
-  mutate(predicted = exp(predicted_value)) %>%
-  group_by(CONTAMINANT, maxfish) %>%
-  mutate(text.x = ifelse(CONTAMINANT=="As", 0.075, 1.5), text.y =0.005) %>%
-  group_by() %>%
-  split(list(.$CONTAMINANT, .$SPECIES_NAME, .$response, .$maxfish)) %>%
-  discard(~ nrow(.x)<3) %>%
-    map(~ list(mod = cor.test(.x$predicted,.x$VALUE), 
-               text.x = unique(.x$text.x), 
-               text.y = unique(.x$text.y))) %>%
-    map(~ data.frame(Cor = round(.x$mod$estimate, 2),
-                     p = round(.x$mod$p.value, 2),
-                     text.x = .x$text.x, 
-                     text.y = .x$text.y)) %>%
-  bind_rows(.id = "set") %>%
-  mutate(CONTAMINANT = str_extract(set, "^Hg|^As"), 
-         SPECIES_NAME = str_extract(set, "Lake Trout|Walleye|Northern Pike"),
-         response = factor(str_extract(set, "SER|boot_REML|REML|MCMC|INLA_ll|INLA"), levels = c("SER", "REML", "boot_REML", "MCMC", "INLA", "INLA_ll")),
-         maxfish = str_extract(set, "[[:digit:]]+"))
+lm_sums_INLA <- INLA_fish_data 
 
 
 lm_sums_INLA <- lm_sums_INLA %>% 
