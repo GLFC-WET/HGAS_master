@@ -902,85 +902,97 @@ To assess the predictive accuracy of each approach, we compared predictions of t
 We ran an additional analysis to determine if there was a threshold number of fish per sample event that, after which, no additional benefit to the predictive accuracy of the overall model was observed. To do this, we trained REML and INLA models that only allowed sampling events to have fish up to a particular threshold number to compare REML and Bayesian approaches. We used the less computationally intensive INLA approach to represent both Bayesian approaches, as INLA and MCMC were highly similar. This was run for every size between 5 and the maximum number of fish possible for the events in the dataset.  
 
 
-```{r samp-size-sets}
+```{r samp-size-sets, cache = T}
 
-## First we produce the combinations of max #fish and #lakes included in models for the threshold number of fish for each number of lakes
-
-sets <- all_contaminants %>% dplyr::select(WATERBODY_CODE, CONTAMINANT, SPECIES_NAME, SAMPLE_YEAR, N_fish, VALUE_LOG_TEST) %>% distinct() %>% arrange(SPECIES_NAME, CONTAMINANT, WATERBODY_CODE, SAMPLE_YEAR) %>% group_by(WATERBODY_CODE, SPECIES_NAME, CONTAMINANT) %>%
-  filter(sum(!is.na(VALUE_LOG_TEST)) != 0) %>% ## Do this to filter out cases where there is no test data for that lake
-  summarize(multi.year = n()>1,
-            numyears = n(), 
-            max_N_fish = max(N_fish),
-            years = str_c(SAMPLE_YEAR, collapse = ", "))
-
-
-Multi.year <- sets %>% group_by(SPECIES_NAME, CONTAMINANT) %>%
-  summarize(Multi.year = sum(multi.year),
-            one.year = sum(!multi.year), 
-            max_N_fish = max(max_N_fish),
-            years.range = str_c(unique(unlist(str_extract_all(years, "[[:digit:]]+"))), collapse = ", ")) %>% 
-  mutate(multi.tot.ratio = Multi.year/(Multi.year+one.year))
-
-## how many lakes at each N??
-lakeswithN <- all_contaminants %>% 
-  dplyr::select(WATERBODY_CODE, CONTAMINANT, SPECIES_NAME, SAMPLE_YEAR, N_fish, VALUE_LOG_TEST) %>% 
-  distinct() %>% 
-  arrange(SPECIES_NAME, CONTAMINANT, WATERBODY_CODE, SAMPLE_YEAR) %>%
-  group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>%
-  summarize(numlakes = n(), 
-            years = str_c(SAMPLE_YEAR, collapse = ", ")) 
-
-## Make list of test and train sets for different scenarios - % of lakes that are multi-year, # of lakes, max # of fish
-
-reps = 10 ## define number of repetitions for each N
-
-## construct for loop that assembles list of samples to iterate through
-n_samples <- c()
-loop_count <- 1
-
-for(i in 1:nrow(Multi.year)){
-  set = Multi.year[i, ]
+if(length(list.files("temp")) > 0){
+  n_samples <- list.files("temp", full.names = T)
+}else{
+  ## First we produce the combinations of max #fish and #lakes included in models for the threshold number of fish for each number of lakes
   
-  for(num in 3:set$max_N_fish){
+  sets <- all_contaminants %>% dplyr::select(WATERBODY_CODE, CONTAMINANT, SPECIES_NAME, SAMPLE_YEAR, N_fish, VALUE_LOG_TEST) %>% distinct() %>% arrange(SPECIES_NAME, CONTAMINANT, WATERBODY_CODE, SAMPLE_YEAR) %>% group_by(WATERBODY_CODE, SPECIES_NAME, CONTAMINANT) %>%
+    filter(sum(!is.na(VALUE_LOG_TEST)) != 0) %>% ## Do this to filter out cases where there is no test data for that lake
+    summarize(multi.year = n()>1,
+              numyears = n(), 
+              max_N_fish = max(N_fish),
+              years = str_c(SAMPLE_YEAR, collapse = ", "))
+  
+  
+  Multi.year <- sets %>% group_by(SPECIES_NAME, CONTAMINANT) %>%
+    summarize(Multi.year = sum(multi.year),
+              one.year = sum(!multi.year), 
+              max_N_fish = max(max_N_fish),
+              years.range = str_c(unique(unlist(str_extract_all(years, "[[:digit:]]+"))), collapse = ", ")) %>% 
+    mutate(multi.tot.ratio = Multi.year/(Multi.year+one.year))
+  
+  ## how many lakes at each N??
+  lakeswithN <- all_contaminants %>% 
+    dplyr::select(WATERBODY_CODE, CONTAMINANT, SPECIES_NAME, SAMPLE_YEAR, N_fish, VALUE_LOG_TEST) %>% 
+    distinct() %>% 
+    arrange(SPECIES_NAME, CONTAMINANT, WATERBODY_CODE, SAMPLE_YEAR) %>%
+    group_by(CONTAMINANT, SPECIES_NAME, N_fish) %>%
+    summarize(numlakes = n(), 
+              years = str_c(SAMPLE_YEAR, collapse = ", ")) 
+  
+  ## Make list of test and train sets for different scenarios - % of lakes that are multi-year, # of lakes, max # of fish
+  
+  reps = 10 ## define number of repetitions for each N
+  
+  ## construct for loop that assembles list of samples to iterate through
+  n_samples <- c()
+  loop_count <- 1
+  
+  for(i in 1:nrow(Multi.year)){
+    set = Multi.year[i, ]
+    
+    for(num in (3:set$max_N_fish)[(3:set$max_N_fish) %in% c(3:20, 25, 30, 35, 40, 45, 50)]){
       
-        ## get all samples for the species/contaminant combination
-        subsamp_data = all_contaminants%>% 
-          filter(SPECIES_NAME == set$SPECIES_NAME & CONTAMINANT == set$CONTAMINANT) %>%
-          arrange(desc(N_fish))
-  
+      ## get all samples for the species/contaminant combination
+      subsamp_data = all_contaminants%>% 
+        filter(SPECIES_NAME == set$SPECIES_NAME & CONTAMINANT == set$CONTAMINANT) %>%
+        arrange(desc(N_fish))
+      
+      
+      
+      ## get the number of unique lakes possible # restrict to just certain #'s of lakes to reduce loop
+      for(lakes in (2:length(unique(subsamp_data$WATERBODY_CODE)))[2:length(unique(subsamp_data$WATERBODY_CODE)) %in% c(2,3,5,7,9,10,15,20,30,40,50,75,100,150,200,250,300,500,750,1000)]){
         
-        set_count = 1 ## keep track of the 'replicate' set that the sample is
-        ## get the number of unique lakes possible # restrict to just certain #'s of lakes to reduce loop
-        for(lakes in (2:length(unique(subsamp_data$WATERBODY_CODE)))[2:length(unique(subsamp_data$WATERBODY_CODE)) %in% c(2,3,5,7,9,10,15,20,30,40,50,75,100,150,200,250,300,500,750,1000)]){
-          
-           ## create new random test/training splits (10 for each max size)
-          for(s in 1:reps){
-            ## grab lake sets where at least one has the max_N of fish - ensures there is always a representation of the appropriate fish # in predictions
+        ## keep track of the 'replicate' set that the sample is
+        set_count = 1
+        ## create new random test/training splits (10 for each max size)
+        while(set_count <= reps){
+          ## grab lake sets where at least one has the max_N of fish - ensures there is always a representation of the appropriate fish # in predictions
           lake.at.N <- sample(unique(subsamp_data$WATERBODY_CODE[subsamp_data$N_fish >= num]), 1)
           lake_set <- c(lake.at.N, sample(unique(subsamp_data$WATERBODY_CODE[subsamp_data$WATERBODY_CODE != lake.at.N]), lakes-1))
-            ## Subset the data training to just the identified lakes and then further subset the training data to just the target N observations
-            sample_set = subsamp_data %>% filter(WATERBODY_CODE %in% lake_set) %>%
-              group_by(WATERBODY_CODE, SAMPLE_YEAR) %>%
-              arrange(is.na(VALUE_LOG_TEST)) %>% 
-              mutate(N_fish = sum(is.na(VALUE_LOG_TEST)), 
-                     samp_num = min(num, N_fish)) %>% 
-              mutate(keep = ifelse(is.na(VALUE_LOG_TEST), 
-                         sample(c(rep(T, unique(samp_num)), 
-                                  rep(F, unique(N_fish)-unique(samp_num))),
-                                  unique(N_fish), replace = F), ## assigns "keep" to only training points that are up to the target N
-                         F)) %>%  
-              group_by() %>% 
-              mutate(VALUE_LOG_TRAIN = ifelse(keep, VALUE_LOG, NA)) ## reassigns the training data values
-   
-            write_rds(sample_set, paste0("temp/", paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, s, sep = "_"), ".rds"))
-            n_samples <- c(n_samples,  paste0("temp/", paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, s, sep = "_"), ".rds"))
-
-          }
+          ## Subset the data training to just the identified lakes and then further subset the training data to just the target N observations
+          sample_set = subsamp_data %>% filter(WATERBODY_CODE %in% lake_set) %>%
+            group_by(WATERBODY_CODE, SAMPLE_YEAR) %>%
+            arrange(is.na(VALUE_LOG_TEST)) %>% 
+            mutate(N_fish = sum(is.na(VALUE_LOG_TEST)), 
+                   samp_num = min(num, N_fish)) %>% 
+            mutate(keep = ifelse(is.na(VALUE_LOG_TEST), 
+                                 sample(c(rep(T, unique(samp_num)), 
+                                          rep(F, unique(N_fish)-unique(samp_num))),
+                                        unique(N_fish), replace = F), ## assigns "keep" to only training points that are up to the target N
+                                 F)) %>%  
+            group_by() %>% 
+            mutate(VALUE_LOG_TRAIN = ifelse(keep, VALUE_LOG, NA)) ## reassigns the training data values
+          if(sum(!is.na(sample_set$VALUE_LOG_TEST))<3 | length(unique(sample_set$WATERBODY_CODE[is.na(sample_set$VALUE_LOG_TEST)])) < lakes){
+          }else{
+            write_rds(sample_set, paste0("temp/", paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, set_count, sep = "_"), ".rds"))
+            n_samples <- c(n_samples,  paste0("temp/", paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, set_count, sep = "_"), ".rds"))
+            set_count = set_count + 1}
+          
           
         }
         
+        rm(set_count)
+        
+      }
+      
+    }
+    
   }
- 
+  
 }
 
 keepfiles <- c(keepfiles, "n_samples")
@@ -1029,11 +1041,13 @@ lmer_mass_model <- function(x){
 #### Modelling as separate models by Contaminant ####
 if(!file.exists("out_workspaces/LMER_numfish_models.RDS")){
   ## Produce individual models for each contaminant/species combination
-  LMER_fish_data <- lapply(n_samples, function(x){
-    
+  LMER_fish_data <- list()
+  count = 1
+  for(x in n_samples){
+    print(x)
     if(sum(!is.na(readRDS(x)$VALUE_LOG_TEST)) < 3){ 
-      out = NULL 
-    }else{temp <- (readRDS(x) %>% lmer_bootstrap_prep() %>% 
+      out = NA 
+    }else{temp <- (readRDS(x)%>% group_by() %>% lmer_bootstrap_prep() %>% 
       lmer_mass_model())$data %>% 
         filter(is.na(VALUE_LOG_TRAIN)) %>%
         rename(REML_log_resid = LMER_resid, REML_logfit = LMER_logfit, REML_fit = LMER_fit) %>%
@@ -1046,10 +1060,12 @@ if(!file.exists("out_workspaces/LMER_numfish_models.RDS")){
     out <- data.frame(Cor = round(temp$mod$estimate, 2),
                      p = round(temp$mod$p.value, 2))}
     
-    return(out)
-    })
+    LMER_fish_data[[count]] <- out
+    names(LMER_fish_data)[count] <- x
+    count = count + 1
+    }
   
-  LMER_fish_data <- LMER_fish_data %>% discard(~ is.null(.x)) %>% bind_rows(.id = "set")
+  LMER_fish_data <- LMER_fish_data %>% discard(~ is.na(.x)) %>% bind_rows(.id = "set")
   ## Cache this dataset, because TAKES FOREVER
     save(LMER_fish_data, file = "out_workspaces/LMER_numfish_models.RDS")
 } else {
@@ -1132,7 +1148,7 @@ if(!file.exists("out_workspaces/INLA_numfish_models.RDS")){
     if(sum(!is.na(readRDS(x)$VALUE_LOG_TEST)) < 3){ 
       out = NULL 
     }else{
-    (readRDS(x) %>%
+    (readRDS(x) %>% group_by()%>%
     mutate(WATERBODY_CODE1 = as.integer(as.factor(WATERBODY_CODE))) %>% # for inla model, this needs to be an integer
     mutate(WATERBODY_CODE2 = WATERBODY_CODE1 + max(WATERBODY_CODE1)) %>% # for inla model, this needs to be a different set of integers
     mutate(n_waterbody = n_distinct(WATERBODY_CODE)) %>% # for inla model, we need to have a number of lakes assigned for setting the appropriate attributes for a two-dimensional model
@@ -1158,7 +1174,7 @@ if(!file.exists("out_workspaces/INLA_numfish_models.RDS")){
   load("out_workspaces/INLA_numfish_models.RDS")
 }
 
-keepfiles <- c(keepfiles, "INLA_fish_data")
+keepfiles <- c(keepfiles[keepfiles != "n_samples"], "INLA_fish_data")
 rm(list = ls()[!ls() %in% keepfiles])
 ```
 
