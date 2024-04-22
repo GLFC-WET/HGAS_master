@@ -1,5 +1,5 @@
 ---
-title: "A comparison of mixed model approaches as methods to improve estimation of size-adjusted contaminant concentrations in fish population"
+title: "Using mixed model approaches can leverage database information to improve the estimation of size-adjusted contaminant concentrations in fish populations"
 author: 
 - \* Emily Smenderovac (corresponding author), Great Lakes Forestry Centre, Natural Resources Canada, emily.smenderovac@nrcan-rncan.gc.ca
 - Brian W. Kielstra, Ecometrix, Guelph, Ontario, bkielstra@ecometrix.ca
@@ -169,7 +169,7 @@ all_contaminants %>% group_by(SPECIES_NAME, CONTAMINANT) %>% summarize(weight.p9
 ### Fish contaminant data
 We obtained a dataset of total Hg and As concentrations ([Hg] and [As] respectively) in fish muscle data from the Ontario Ministry of Environment, Conservation, and Parks (OMECP)[@ontario2023] and from data collected in Northern Ontario for Arsenic studies [@kluke2022]. Although individual fish sampling protocols varied, muscle tissue sent to OMECP is analyzed using standard methods as part of the Fish Contaminants Monitoring Program (FCMP) [@ontario2023]. More specifically, total [Hg] were measured using cold vapor-flameless atomic absorption spectroscopy (CV-FAAS) following protocol OMECP-HGBIO-WS057 and total [As] was measured using Inductively Coupled Plasma Mass Spectrometry (ICP-MS) following method OMECP-BIOTA-E3461.
 
-We included [Hg] because it is a highly bioaccumulative contaminant of global concern that is routinely monitored in fish and used to inform consumption guidelines[@mecp2023]. Size adjustments of [Hg] concentrations in research of variation across environmental gradients are also common [@lescord2020;@sumner2020;@eagles-smith2016;@eckley2023;@negrazis2022]. We also include [As] as a representative contaminant that has also been size-adjusted in research [@kluke2022;@lescord2020], but is less bioaccumulative in fish, showing mixed or weaker relationships with metrics of body size [@lescord2020;@kluke2022;@lepage2024]. We further limited data to only inland lakes (i.e., excluding the Great Lakes) and to three fish species: *Salvelinus namaycush namaycush* (common Lake Trout, hereafter Lake Trout), *Esox lucius* (Northern Pike), and *Sander vitreus* (Walleye). These species were selected because while they are all predators they represent distinct niches within lakes. These species are also commonly consumed by anglers, so accurate estimation of contaminant concentrations is important for mitigating human health risk. Our final dataset included [Hg] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "Hg"]` fish and [As] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "As"]` fish. The datasets were heavily biased to smaller fish, but had a normal distribution of values, with fish between 400 and 1100 being well represented in the data (Figure S\@ref(fig:response-values)). Generally, most fish in the dataset had contaminant concentrations < 1.3 ug/gram~wet weight~ [Hg] and < 0.4 ug/g~wet weight~ [As] (Figure S\@ref(fig:response-values)). 
+We included [Hg] because it is a highly bioaccumulative contaminant of global concern that is routinely monitored in fish and used to inform consumption guidelines[@mecp2023]. Size adjustments of [Hg] concentrations in research of variation across environmental gradients are also common [@lescord2020;@sumner2020;@eagles-smith2016;@eckley2023;@negrazis2022]. We also include [As] as a representative contaminant that has also been size-adjusted in research [@kluke2022;@lescord2020], but is less bioaccumulative in fish, showing mixed or weaker relationships with metrics of body size [@lescord2020;@kluke2022;@lepage2024]. We further limited data to only inland lakes (i.e., excluding the Great Lakes) and to three fish species: *Salvelinus namaycush namaycush* (common lake trout, hereafter lake trout), *Esox lucius* (northern pike), and *Sander vitreus* (walleye). These species were selected because while they are all predators they represent distinct niches within lakes. These species are also commonly consumed by anglers, so accurate estimation of contaminant concentrations is important for mitigating human health risk. Our final dataset included [Hg] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "Hg"]` fish and [As] in `r fish_amounts$total_fish[fish_amounts$CONTAMINANT == "As"]` fish. The datasets were heavily biased to smaller fish, but had a normal distribution of values, with fish between 400 and 1100 being well represented in the data (Figure S\@ref(fig:response-values)). Generally, most fish in the dataset had contaminant concentrations < 1.3 ug/gram~wet weight~ [Hg] and < 0.4 ug/g~wet weight~ [As] (Figure S\@ref(fig:response-values)). 
 
 ### Test and training datasets
 
@@ -899,10 +899,10 @@ We calculated the population median of [As] values for each of the three fish sp
 To assess the predictive accuracy of each approach, we compared predictions of test set values to the recorded measured values using Pearson correlation with the cor.test function in R. We also assessed the fit of each approach by calculating the root mean squared error (RMSE) of the training set for each sampling event (distinct year-waterbody combination) in the dataset. Accuracies based on test data reflect the generalized predictive capability of a model, while fit reflects the accuracy of the model in representing the trends present in the training data. Additionally, to provide context about the accessibility of the different approaches, we collected and compared the required computational time required to run each model to the RMSE of the overall models. 
 
 
-We ran an additional analysis to determine if there was a threshold number of fish per sample event that, after which, no additional benefit to the predictive accuracy of the overall model was observed. To do this, we trained REML and INLA models that only allowed sampling events to have fish up to a particular threshold number to compare REML and Bayesian approaches. We used the less computationally intensive INLA approach to represent both Bayesian approaches, as INLA and MCMC were highly similar. This was run for every size between 5 and the maximum number of fish possible for the events in the dataset.  
-
+We ran an additional analysis to assess how model performance changes with different fish and lake number sampling scenarios. We trained REML and INLA models on randomly sampled training sets with a range of lake numbers and fish numbers, in replicates of 10, to evaluate model predictive performance. We used the less computationally intensive INLA approach to represent both Bayesian approaches, as INLA and MCMC were highly similar. This was run for a range of lake numbers up to the maximum number of lakes (2,3,5,7,9,10,15,20,30,40,50,75,100,150,200,250,300,500,750,1000) and a range of fish sizes up to the maximum number of fish (3-20, 25, 30, 35, 40, 45, 50).  
 
 ```{r samp-size-sets, cache = T}
+### We subsample with random sampling of lakes with at least one lake with the max fish, and all other lakes with at least 25% of the max fish number to keep some semblance of balance in the simulation scenarios. 
 
 if(length(list.files("temp")) > 0){
   n_samples <- list.files("temp", full.names = T)
@@ -950,19 +950,30 @@ if(length(list.files("temp")) > 0){
       subsamp_data = all_contaminants%>% 
         filter(SPECIES_NAME == set$SPECIES_NAME & CONTAMINANT == set$CONTAMINANT) %>%
         arrange(desc(N_fish))
-      
+        
+        wbs_uniques <- unique(subsamp_data$WATERBODY_CODE[!is.na(subsamp_data$VALUE_LOG_TRAIN)])
+        
+        lakevec = (2:length(wbs_uniques))[2:length(wbs_uniques) %in% c(2,3,5,7,9,10,15,20,30,40,50,75,100,150,200,250,300,500,750,1000)]
       
       
       ## get the number of unique lakes possible # restrict to just certain #'s of lakes to reduce loop
-      for(lakes in (2:length(unique(subsamp_data$WATERBODY_CODE)))[2:length(unique(subsamp_data$WATERBODY_CODE)) %in% c(2,3,5,7,9,10,15,20,30,40,50,75,100,150,200,250,300,500,750,1000)]){
-        
+      for(lakes in lakevec){
+        ## diagnostic print
+       #print(paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, set_count, sep = "_")) 
+        ## skip the iteration if there are not enough lakes at the n fish
+        if(length(unique(subsamp_data$WATERBODY_CODE[subsamp_data$N_fish >= num])) < lakes){
+            next
+          }
         ## keep track of the 'replicate' set that the sample is
         set_count = 1
+        times = 1
         ## create new random test/training splits (10 for each max size)
         while(set_count <= reps){
           ## grab lake sets where at least one has the max_N of fish - ensures there is always a representation of the appropriate fish # in predictions
           lake.at.N <- sample(unique(subsamp_data$WATERBODY_CODE[subsamp_data$N_fish >= num]), 1)
-          lake_set <- c(lake.at.N, sample(unique(subsamp_data$WATERBODY_CODE[subsamp_data$WATERBODY_CODE != lake.at.N]), lakes-1))
+          ## grab the rest of lakes, making sure they have at least N of the maxN fish in each lake for the simulation.
+            lake_set <- c(lake.at.N, sample(unique(subsamp_data$WATERBODY_CODE[subsamp_data$WATERBODY_CODE != lake.at.N & subsamp_data$N_fish >= num]), lakes-1))
+   
           ## Subset the data training to just the identified lakes and then further subset the training data to just the target N observations
           sample_set = subsamp_data %>% filter(WATERBODY_CODE %in% lake_set) %>%
             group_by(WATERBODY_CODE, SAMPLE_YEAR) %>%
@@ -976,12 +987,19 @@ if(length(list.files("temp")) > 0){
                                  F)) %>%  
             group_by() %>% 
             mutate(VALUE_LOG_TRAIN = ifelse(keep, VALUE_LOG, NA)) ## reassigns the training data values
+          ## Forces a repeat of the loop if there are less than three test values in the data subset
           if(sum(!is.na(sample_set$VALUE_LOG_TEST))<3 | length(unique(sample_set$WATERBODY_CODE[is.na(sample_set$VALUE_LOG_TEST)])) < lakes){
+            ## Check for hangup issue to troubleshoot
+            #print(paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, set_count, sep = "_"))
+            times = times + 1
+            if(times >= 50){
+              break
+              } #If the attempts to get the rep are 50, then reset the attempts and skip to next loop
           }else{
             write_rds(sample_set, paste0("temp/", paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, set_count, sep = "_"), ".rds"))
             n_samples <- c(n_samples,  paste0("temp/", paste(set$SPECIES_NAME, set$CONTAMINANT, lakes, num, set_count, sep = "_"), ".rds"))
-            set_count = set_count + 1}
-          
+            set_count = set_count + 1
+            times = 1}
           
         }
         
@@ -1044,8 +1062,8 @@ if(!file.exists("out_workspaces/LMER_numfish_models.RDS")){
   LMER_fish_data <- list()
   count = 1
   for(x in n_samples){
-    print(x)
-    if(sum(!is.na(readRDS(x)$VALUE_LOG_TEST)) < 3){ 
+    #print(x)
+    if(class(try(readRDS(x)%>% group_by() %>% lmer_bootstrap_prep() %>% lmer_mass_model())) == "try-error"){ 
       out = NA 
     }else{temp <- (readRDS(x)%>% group_by() %>% lmer_bootstrap_prep() %>% 
       lmer_mass_model())$data %>% 
@@ -1065,7 +1083,20 @@ if(!file.exists("out_workspaces/LMER_numfish_models.RDS")){
     count = count + 1
     }
   
-  LMER_fish_data <- LMER_fish_data %>% discard(~ is.na(.x)) %>% bind_rows(.id = "set")
+  LMER_fish_data <- LMER_fish_data %>%
+    discard(~ class(.x) == "logical") %>% 
+    bind_rows(.id = "set") %>% 
+    mutate(n = 1:n(), 
+           nums = str_extract_all(set, "[[:digit:]]+")) %>% 
+    group_by(n) %>% 
+    mutate(num_lakes = nums[[1]][1],
+           num_fish = nums[[1]][2],
+           rep = nums[[1]][3], 
+           SPECIES_NAME = str_extract(set, str_c(unique(all_contaminants$SPECIES_NAME), collapse = "|")), 
+           CONTAMINANT = str_extract(set, str_c(unique(all_contaminants$CONTAMINANT), collapse = "|"))) %>% 
+    group_by() %>%
+    dplyr::select(SPECIES_NAME, CONTAMINANT, num_lakes, num_fish, rep, Cor, p)
+                                      
   ## Cache this dataset, because TAKES FOREVER
     save(LMER_fish_data, file = "out_workspaces/LMER_numfish_models.RDS")
 } else {
@@ -1143,12 +1174,19 @@ contam.INLA.N <- function(x){
 
 if(!file.exists("out_workspaces/INLA_numfish_models.RDS")){
   ## Produce individual models for each contaminant/species combination
-  INLA_fish_data <- lapply(n_samples, function(x){
-    
-    if(sum(!is.na(readRDS(x)$VALUE_LOG_TEST)) < 3){ 
-      out = NULL 
+  
+  INLA_fish_data <- list()
+  count = 1
+  for(x in n_samples){
+    print(x)
+    if(class(try(readRDS(x) %>% group_by()%>%
+    mutate(WATERBODY_CODE1 = as.integer(as.factor(WATERBODY_CODE))) %>% # for inla model, this needs to be an integer
+    mutate(WATERBODY_CODE2 = WATERBODY_CODE1 + max(WATERBODY_CODE1)) %>% # for inla model, this needs to be a different set of integers
+    mutate(n_waterbody = n_distinct(WATERBODY_CODE)) %>% # for inla model, we need to have a number of lakes assigned for setting the appropriate attributes for a two-dimensional model
+    contam.INLA.N())) == "try-error"){ 
+      out = NA 
     }else{
-    (readRDS(x) %>% group_by()%>%
+    temp <- (readRDS(x) %>% group_by()%>%
     mutate(WATERBODY_CODE1 = as.integer(as.factor(WATERBODY_CODE))) %>% # for inla model, this needs to be an integer
     mutate(WATERBODY_CODE2 = WATERBODY_CODE1 + max(WATERBODY_CODE1)) %>% # for inla model, this needs to be a different set of integers
     mutate(n_waterbody = n_distinct(WATERBODY_CODE)) %>% # for inla model, we need to have a number of lakes assigned for setting the appropriate attributes for a two-dimensional model
@@ -1163,10 +1201,26 @@ if(!file.exists("out_workspaces/INLA_numfish_models.RDS")){
       out <- data.frame(Cor = round(temp$mod$estimate, 2),
                      p = round(temp$mod$p.value, 2))
     }
-    return(out)})
+    
+    INLA_fish_data[[count]] <- out
+    names(INLA_fish_data)[count] <- x
+    count = count + 1
+    }
   
   
-  INLA_fish_data <- INLA_fish_data %>% discard(~ is.null(.x)) %>% bind_rows(.id = "set")
+  INLA_fish_data<- INLA_fish_data %>%
+    discard(~ class(.x) == "logical") %>% 
+    bind_rows(.id = "set") %>% 
+    mutate(n = 1:n(), 
+           nums = str_extract_all(set, "[[:digit:]]+")) %>% 
+    group_by(n) %>% 
+    mutate(num_lakes = nums[[1]][1],
+           num_fish = nums[[1]][2],
+           rep = nums[[1]][3], 
+           SPECIES_NAME = str_extract(set, str_c(unique(all_contaminants$SPECIES_NAME), collapse = "|")), 
+           CONTAMINANT = str_extract(set, str_c(unique(all_contaminants$CONTAMINANT), collapse = "|"))) %>% 
+    group_by() %>%
+    dplyr::select(SPECIES_NAME, CONTAMINANT, num_lakes, num_fish, rep, Cor, p)
 
   ## Cache this dataset, because TAKES FOREVER
     save(INLA_fish_data, file = "out_workspaces/INLA_numfish_models.RDS")
@@ -1185,7 +1239,7 @@ Additionally, we collected and compare the required computational time for each 
 # Results and Discussion
 
 
-Of all the approaches tested in this paper, REML and INLA were the most practical for producing accurate size-standardized  estimates of contaminant concentration for distinct waterbodies. Both techniques allowed for predictions in waterbodies where SER could not be performed. The predictions were highly comparable to the measured values and had favourable computational speed when compared to other approaches. REML may be more appropriate for many situations, as the implementation was less conceptually complex and more easily programmed at the time of writing this paper. However, INLA performed effectively on all datasets, and had more predictable performance when run on a variety of sample sizes. 
+Of all the approaches tested in this paper, REML and INLA were the most practical for producing accurate size-standardized  estimates of contaminant concentration for distinct waterbodies. Both techniques allowed for predictions in waterbodies where SER could not be performed. The predictions were highly comparable to the measured values and had favourable computational speed when compared to other approaches. REML may be more appropriate for many situations, as the implementation was less conceptually complex and more easily programmed at the time of writing this paper. However, INLA performed effectively on all datasets, and had more predictable performance when run on a variety of simulated sampling scenarios. 
 
 
 ```{r pred-resid-table-fig-Hg, fig.width=8, fig.height=10.5, fig.cap = "Table of [Hg] model prediction results for tissue of 400-600g and 900-1100g fish compared to measured values. The table includes a column of correlation statistics (r and p-value) for each model assessed in the study. To the right of the plot, a dot plot shows the distribution of model residuals for events with less than five fish (grey), or 5 or more fish (black). A central hollow circle designates the median, with a solid error bar designating the 2.5, and 95th percentiles of the distribution. A dashed line ending in a + is used to show the range of remaining residuals. A vertical red line is used to highlight where the distributions overlap with zero. Particularly large outliers or percentiles are indicated in text on the left side of the plot.", message = FALSE}
@@ -1194,7 +1248,8 @@ Of all the approaches tested in this paper, REML and INLA were the most practica
 mean_mods <- all_contaminants %>%
   # split the dataset by contaminant, species for each waterbody and sampling year
   group_by(CONTAMINANT, SPECIES_NAME, EVENT) %>%
-  mutate(mean_logfit = mean(VALUE_LOG_TRAIN, na.rm = T)) %>% 
+  mutate(mean_logfit = mean(VALUE_LOG_TRAIN, na.rm = T),
+         SPECIES_NAME = tolower(SPECIES_NAME)) %>% 
   mutate(predicted_value = mean_logfit,
          response = "mean_logfit",
          N_fish = sum(is.na(VALUE_LOG_TEST))) %>%
@@ -1214,7 +1269,7 @@ lm_sums <- models_accuracy_by_N %>% rbind(mean_mods) %>%
                      p = ifelse(class(.x$mod) != "try-error", round(.x$mod$p.value, 2), NA))) %>%
   bind_rows(.id = "set") %>%
   mutate(CONTAMINANT = str_extract(set, "^Hg|^As"), 
-         SPECIES_NAME = str_extract(set, "Lake Trout|Walleye|Northern Pike"),
+         SPECIES_NAME = str_extract(tolower(set), "lake trout|walleye|northern Pike"),
          response = factor(str_extract(set, "SER|mean|boot_REML|REML|MCMC|INLA_ll|INLA"), levels = c("SER", "mean", "REML", "boot_REML", "MCMC", "INLA", "INLA_ll")),
          R2.text = ifelse(!is.na(Cor), paste0("r = ", Cor, "\np ",ifelse(p < 0.05, "< 0.05", paste0("= ", p))), "Not enough data")) %>% 
   arrange(response, CONTAMINANT, SPECIES_NAME) %>%
@@ -1355,45 +1410,10 @@ ggarrange(plot.corrs, plot.resids, ncol =2, common.legend = T, align = "v")
 ```
 
 
-We found that mixed effects approaches performed better than SER by enabling prediction of values for low sample sizes with increased or comparable accuracy to SER (Figure\@ref(fig:pred-resid-table-fig-Hg), \@ref(fig:pred-resid-table-res-As), Figure S\@ref(fig:pred-1000g-rem)). The REML, MCMC and INLA values were generally more strongly correlated to actual concentrations (r ranging from 0.73 - 0.99) than predictions from SER models (r ranging from 0.48 – 0.84) (Figure\@ref(fig:pred-resid-table-fig-Hg), \@ref(fig:pred-resid-table-res-As)), Figure S\@ref(fig:pred-1000g-rem)). Also, the residuals for the different mixed modeling approaches were generally similar or smaller than those of the SER approach, as observed the distributions of residuals shown in Figures \@ref(fig:pred-resid-table-fig-Hg) and \@ref(fig:pred-resid-table-res-As). Interestingly, attempts to improve the REML approach with bootstrapping did not increase accuracy of predictions, even resulting in decreased correlation strengths in some cases (specifically for the [Hg] Northern Pike and Lake Trout models, and the [As] Walleye model) (Figure\@ref(fig:pred-resid-table-fig-Hg) and \@ref(fig:pred-resid-table-res-As)). This is likely because the bootstrapping process overfit the models, as demonstrated by decreased RMSE (Figure\@ref(fig:RMSE-N-WE)), which reduced the ability of the models to produce generalized predictions. All of the mixed modeling methods were able to achieve the same level of accuracy in lakes with <5 fish as in larger sampling events, effectively increasing the size of the dataset that could produce predictions. It is likely that the increase in correlation of the mixed modelling approaches may just be a result of the increased sample size these approaches offer. Though the mixed model approach was only required for improving prediction when there was known bioaccumulation (i.e., for [Hg]), the accuracy of mixed model approaches were always comparable or better than SER or basic population means. Mixed model approaches improved prediction for datasets with less than 6000 training fish, which would be applicable to many studies. Nevertheless, the mixed model approaches are a suitable solution for contaminant prediction in a variety of dataset sizes and contaminants of variable bioaccumulative potential.  
+We found that mixed effects approaches performed better than SER by enabling prediction of values for low sample sizes with increased or comparable accuracy to SER (Figure\@ref(fig:pred-resid-table-fig-Hg), \@ref(fig:pred-resid-table-res-As), Figure S\@ref(fig:pred-1000g-rem)). The REML, MCMC and INLA values were generally more strongly correlated to actual concentrations (r ranging from 0.73 - 0.99) than predictions from SER models (r ranging from 0.48 – 0.84) (Figure\@ref(fig:pred-resid-table-fig-Hg), \@ref(fig:pred-resid-table-res-As)), Figure S\@ref(fig:pred-1000g-rem)). Also, the residuals for the different mixed modeling approaches were generally similar or smaller than those of the SER approach, as observed the distributions of residuals shown in Figures \@ref(fig:pred-resid-table-fig-Hg) and \@ref(fig:pred-resid-table-res-As). Interestingly, attempts to improve the REML approach with bootstrapping did not increase accuracy of predictions, even resulting in decreased correlation strengths in some cases (specifically for the [Hg] northern pike and lake trout models, and the [As] walleye model) (Figure\@ref(fig:pred-resid-table-fig-Hg) and \@ref(fig:pred-resid-table-res-As)). This is likely because the bootstrapping process overfit the models, as demonstrated by decreased RMSE (Figure\@ref(fig:RMSE-N-WE)), which reduced the ability of the models to produce generalized predictions. All of the mixed modeling methods were able to achieve the same level of accuracy in lakes with <5 fish as in larger sampling events, effectively increasing the size of the dataset that could produce predictions. It is likely that the increase in correlation of the mixed modelling approaches may just be a result of the increased sample size these approaches offer. Though the mixed model approach was only required for improving prediction when there was known bioaccumulation (i.e., for [Hg]), the accuracy of mixed model approaches were always comparable or better than SER or basic population means. Mixed model approaches improved prediction for datasets with less than 6000 training fish, which would be applicable to many studies. Nevertheless, the mixed model approaches are a suitable solution for contaminant prediction in a variety of dataset sizes and contaminants of variable bioaccumulative potential.  
 
 
-```{r pred-fish-num, fig.width=8, fig.height=10, fig.cap = "Predicted concentration of [As] and [Hg] in fish tissue of 400-600g and 900-1100g fish compared to known values for models built with different maximum numbers of fish in training events. Points represent the correlations of predicted contaminant concentrations to measured values for the test dataset.", include=TRUE}
 
-## Lm summaries for REML
-lm_sums_LMER <- LMER_fish_data 
-
-
-## Lm summaries for INLA
-lm_sums_INLA <- INLA_fish_data 
-
-
-lm_sums_INLA <- lm_sums_INLA %>% 
-  left_join(max.n.fish) %>% 
-  mutate(keep = as.numeric(maxfish) <= max_N_fish) %>% 
-  filter(keep)
-
-lm_sums <- rbind(lm_sums_LMER, lm_sums_INLA)
-
-## plot the accuracy by the amount of contaminant being predicted
-plot1 <- ggplot(lm_sums %>% mutate(maxfish = as.numeric(maxfish)) %>%
-         filter(CONTAMINANT=="As") %>% group_by(), aes(maxfish, Cor, color = response)) + 
-  geom_point(alpha=0.25, aes(shape = p<0.05)) +
-  geom_line()+
-  ylab("corellation of predicted values to measured values") + xlab("Max number of Fish in training event") +
-  facet_grid(CONTAMINANT+SPECIES_NAME~.) + 
-  theme_minimal() 
-
-plot2 <- ggplot(lm_sums %>% mutate(maxfish = as.numeric(maxfish)) %>%
-         filter(CONTAMINANT=="Hg") %>% group_by(), aes(maxfish, Cor, color = response)) + 
-  geom_point(alpha=0.25, aes(shape = p<0.05)) +
-  geom_line()+
-  ylab("corellation of predicted values to measured values") + xlab("Max number of Fish in training event") +
-  facet_grid(CONTAMINANT+SPECIES_NAME~.) + 
-  theme_minimal() 
-
-ggarrange(plot1, plot2, ncol =1, common.legend = T)
-```
 
 
 
@@ -1447,7 +1467,7 @@ Mixed model approaches show promise for increasing predictive power for estimati
 
 <!---
 extra stuff
-In freshwater systems, [Hg] typically ranges from …. for Lake Trout, … for Northern Pike and … for Walleye, which align quite well with the range we observed in the data …. for Lake Trout, … for Northern Pike and … for Walleye. The higher variance in response of the REML approaches is likely because of the limited capability for this approach to account for uncertainty in random effects, and it appears that our bootstrapping implementation did little to correct for this issue.
+In freshwater systems, [Hg] typically ranges from …. for Lake Trout, … for Northern Pike and … for walleye, which align quite well with the range we observed in the data …. for Lake Trout, … for Northern Pike and … for walleye. The higher variance in response of the REML approaches is likely because of the limited capability for this approach to account for uncertainty in random effects, and it appears that our bootstrapping implementation did little to correct for this issue.
 but also have applications for studying polar bear [@verreault2005], moose [@danielsson2009] and even human populations [@pal2013].
 Small sample sizes can be particularly limiting in assessments of temporal trends, and may lead researchers to pool samples over time periods, such as in Bhavsar *et al.,* [-@bhavsar2010].
 
@@ -1605,7 +1625,7 @@ lm_sums <- models_accuracy_by_N %>% rbind(mean_mods) %>%
                      text.y = .x$text.y)) %>%
   bind_rows(.id = "set") %>%
   mutate(CONTAMINANT = str_extract(set, "^Hg|^As"), 
-         SPECIES_NAME = str_extract(set, "Lake Trout|Walleye|Northern Pike"),
+         SPECIES_NAME = str_extract(tolower(set), "lake trout|walleye|northern pike"),
          response = factor(str_extract(set, "SER|mean|boot_REML|REML|MCMC|INLA_ll|INLA"), levels = c("SER", "mean", "REML", "boot_REML", "MCMC", "INLA", "INLA_ll")),
          R2.text = paste0("cor = ", Cor, "\np ",ifelse(p < 0.05, "< 0.05", paste0("= ", p))))
 
@@ -1709,6 +1729,191 @@ plot1
 
 
 
+```{r pred-fish-num, fig.width=10, fig.height=8, fig.cap = "Predicted concentration of [As] and [Hg] in fish tissue of 400-600g and 900-1100g fish compared to known values for models built with different maximum numbers of fish in training events. Points represent the correlations of predicted contaminant concentrations to measured values for the test dataset.", include=TRUE}
+
+nfishes <- rbind(LMER_fish_data %>% 
+                   mutate(Anal. = "REML"), 
+                 INLA_fish_data %>% 
+                   mutate(Anal. = "INLA")) %>% 
+  group_by(SPECIES_NAME, CONTAMINANT, num_lakes, num_fish, Anal.) %>%
+  mutate(Cor = ifelse(p > 0.05 | Cor < 0, 0, Cor)) %>% ## turn any non-significant correlations to downweight the average or minimum correlation values
+  summarize(rangeCor = str_c(range(Cor, na.rm = T), collapse = "-"), 
+            minCor = min(Cor, na.rm = T), 
+            maxCor = max(Cor, na.rm = T), 
+            av.Cor = median(Cor, na.rm = T), 
+            q75Cor = quantile(Cor, p = 0.75, na.rm = T), 
+            q25Cor = quantile(Cor, p = 0.25, na.rm = T), 
+            q05Cor = quantile(Cor, p = 0.05, na.rm = T), 
+            conf.int.high = ifelse(length(unique(Cor))==1, unique(Cor), t.test(Cor)$conf.int[2]), 
+            conf.int.low = ifelse(length(unique(Cor))==1, unique(Cor), t.test(Cor)$conf.int[1]),
+            range.size = maxCor-minCor, 
+            conf.int.size = conf.int.high - conf.int.low)%>% 
+  mutate(num_lakes = as.numeric(as.character(num_lakes)), 
+         num_fish = as.numeric(as.character(num_fish)))  %>% 
+  # find when the "best" model for number of fish is achieved for each lake - i.e. when does the previous number of fish stop overlapping the av.Cor of the next highest # of fish 
+  # also find when the "best" model for number of lakes is achieved for each number of fish - i.e. when does the previous number of lakes stop overlapping the av.Cor of the next highest # of lakes 
+  group_by(CONTAMINANT, SPECIES_NAME, Anal.) %>%
+  mutate(best_nfish_lake = sapply(1:n(), FUN = function(x){sum(0.8 > maxCor[num_fish >= num_fish[x] & num_lakes >= num_lakes[x]]) == 0  & sum(0.75 > minCor[num_fish >= num_fish[x] & num_lakes >= num_lakes[x]]) == 0})) %>%
+  #also figure out which ones have unpredictable behaviour - i.e., have a wide range compared to rest of data - have to be within 10% of 
+  group_by(CONTAMINANT, SPECIES_NAME, Anal.) %>%
+  mutate(stable = sapply(1:n(), FUN = function(x){conf.int.size[x] <= 0.1})) %>%
+  arrange(num_fish, num_lakes) %>%
+  mutate(num_lakes = as.factor(num_lakes), 
+         num_fish = as.factor(num_fish)) %>%
+  mutate(choice=ifelse(best_nfish_lake, av.Cor, NA),
+         SPECIES_NAME = tolower(SPECIES_NAME))
+
+
+plotLTHgREML <- ggplot(nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "Hg", Anal. =="REML"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Lake trout mercury, REML") + 
+  scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "Hg"))$choice, na.rm = T)) + 
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "Hg"))$choice, na.rm = T)), "black", "white"), size = 0.25)) +
+  scale_color_manual(values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+plotLTAsREML <- ggplot(nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "As", Anal. =="REML"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Lake trout arsenic, REML") + 
+   scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "As"))$choice, na.rm = T)) + 
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "As"))$choice, na.rm = T)), "black", "white"), size = 3)) +
+  scale_color_manual(values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+plotLTHgINLA <- ggplot(nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "Hg", Anal. =="INLA"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Lake trout mercury, INLA") + 
+  scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "Hg"))$choice, na.rm = T)) + 
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "Hg"))$choice, na.rm = T)), "black", "white"), size = 0.25)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+plotLTAsINLA <- ggplot(nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "As", Anal. =="INLA"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Lake trout arsenic, INLA") + 
+   scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "As"))$choice, na.rm = T)) + 
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "lake trout", CONTAMINANT == "As"))$choice, na.rm = T)), "black", "white"), size = 3)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+plotNPHgREML <- ggplot(nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "Hg", Anal. =="REML"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Northern pike mercury, REML") + 
+   scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "Hg"))$choice, na.rm = T)) + 
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "Hg"))$choice, na.rm = T)), "black", "white"), size = 0.25)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+plotNPAsREML <- ggplot(nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "As", Anal. =="REML"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Northern pike arsenic, REML") + 
+   scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "As"))$choice, na.rm = T)) +  
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "As"))$choice, na.rm = T)), "black", "white"), size = 2)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+
+plotNPHgINLA <- ggplot(nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "Hg", Anal. =="INLA"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Northern pike mercury, INLA") + 
+   scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "Hg"))$choice, na.rm = T)) +  
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "Hg"))$choice, na.rm = T)), "black", "white"), size = 0.25)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+  #geom_errorbar(aes(ymin = minCor, ymax = maxCor))
+
+plotNPAsINLA <- ggplot(nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "As", Anal. =="INLA"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Northern pike arsenic, INLA") + 
+   scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "As"))$choice, na.rm = T)) +  
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "northern pike", CONTAMINANT == "As"))$choice, na.rm = T)), "black", "white"), size = 2)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+plotWEHgREML <- ggplot(nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "Hg", Anal. =="REML"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Walleye mercury, REML") +  
+  scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "Hg"))$choice, na.rm = T)) + 
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "Hg"))$choice, na.rm = T)), "black", "white"), size = 0.25)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+plotWEAsREML <- ggplot(nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "As", Anal. =="REML"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Walleye arsenic, REML") + 
+   scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "As"))$choice, na.rm = T)) + 
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "As"))$choice, na.rm = T)), "black", "white"), size = 2)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+
+plotWEHgINLA <- ggplot(nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "Hg", Anal. =="INLA"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Walleye mercury, INLA") + 
+   scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "Hg"))$choice, na.rm = T)) + 
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "Hg"))$choice, na.rm = T)), "black", "white"), size = 0.25)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE)+theme(legend.position = "bottom")
+
+plotWEAsINLA <- ggplot(nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "As", Anal. =="INLA"), aes(num_lakes, num_fish, fill = choice)) + 
+  geom_tile(aes(width = 1, height = 1)) + 
+  ggtitle("Walleye arsenic, INLA") + 
+   scale_fill_viridis_c(name = "Average Cor", option = "magma", limits = range((nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "As"))$choice, na.rm = T)) + 
+  geom_text(aes(label = rangeCor, color = ifelse(is.na(choice)|choice>(mean((nfishes %>% filter(SPECIES_NAME == "walleye", CONTAMINANT == "As"))$choice, na.rm = T)), "black", "white"), size = 2)) +
+  scale_color_manual(name = "Average Cor", values = c("black" = "black", "white" = "white")) + guides(color = FALSE, size = FALSE) +theme(legend.position = "bottom")
+```
+
+
+```{r LTasINLA_prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of lake trout arsenic INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotLTAsINLA
+```
+
+
+```{r LTasREML_prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of lake trout arsenic REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotLTAsREML
+```
+
+
+```{r LThgINLA_prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of lake trout mercury INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotLTHgINLA
+```
+
+
+```{r LThgREML_prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of lake trout mercury REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotLTHgREML
+```
+
+
+```{r NPasINLA_prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of northern pike arsenic INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotNPAsINLA
+```
+
+
+```{r NPasREML_prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of northern pike arsenic REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotNPAsREML
+```
+
+
+```{r NPhgINLA_prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of northern pike mercury INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotNPHgINLA
+```
+
+
+```{r NPhgREML_prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of northern pike mercury REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotNPHgREML
+```
+
+
+```{r WEasINLA_prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of walleye arsenic INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotWEAsINLA
+```
+
+
+```{r WEasREML_prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of walleye arsenic REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotWEAsREML
+```
+
+
+```{r WEhgINLA_prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of walleye mercury INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotWEHgINLA
+```
+
+
+```{r WEhgREML_prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of walleye mercury REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where perfromance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+plotWEHgREML
+```
+
+
+
 ```{r predictions-SER-WE, fig.height=10, fig.width = 8, fig.cap = "Predicted concentration of [As] and [Hg] of 500g and 1000g fish compared to predictions via SER. Points display each individual fish prediction and a solid red line shows a 1-1 relationship. The dashed red lines provide an interval for predicted values that are within 25% of the predicted SER value. Correlation statistics are included in the top left of each panel."}
 #Plot comparison of predicted Hg and As content of 500g and 1000g fish for each technique against The SER value
 ## fill in missing N_fish information
@@ -1720,7 +1925,7 @@ predicted_data_4plot <- predicted_data %>% group_by(SAMPLE_YEAR, SPECIES_NAME, W
          pred.fit = as.numeric(pred.fit), 
          N_fish = ifelse(is.na(N_fish), 0, N_fish)) %>%
   mutate(method = factor(as.character(method), levels = c("SER", "REML", "boot_REML", "MCMC", "INLA", "INLA_ll"))) %>% 
-  filter(!N_fish == 0, (SPECIES_NAME == "Lake Trout" & CONTAMINANT == "Hg")|(SPECIES_NAME == "Northern Pike" & CONTAMINANT == "As")) %>% filter(!method == "INLA_ll")
+  filter(!N_fish == 0, (SPECIES_NAME == "Lake Trout" & CONTAMINANT == "Hg")|(SPECIES_NAME == "northern pike" & CONTAMINANT == "As")) %>% filter(!method == "INLA_ll")
 
 ## prepare for plotting against SER predictions
 pred.plot <- predicted_data_4plot %>% pivot_wider(id_cols = c("N_fish", "SAMPLE_YEAR", "SPECIES_NAME", "WATERBODY_CODE", "CONTAMINANT", "WEIGHT_GRAM"), names_from = method, values_from = pred.fit, values_fn = mean) %>%
@@ -1744,7 +1949,7 @@ lm_sums <- pred.plot %>%
                      text.y = .x$text.y)) %>%
   bind_rows(.id = "set") %>%
   mutate(CONTAMINANT = str_extract(set, "^Hg|^As"), 
-         SPECIES_NAME = str_extract(set, "Lake Trout|Walleye|Northern Pike"),
+         SPECIES_NAME = str_extract(set, "lake trout|walleye|northern pike"),
          method = factor(str_extract(set, "SER|boot_REML|REML|MCMC|INLA"), levels = c("SER", "REML", "boot_REML", "MCMC", "INLA")),
          R2.text = paste0("cor = ", Cor, "\np ",ifelse(p < 0.05, "< 0.05", paste0("= ", p))))
 
