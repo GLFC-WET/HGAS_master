@@ -13,9 +13,5 @@ For ease of use, R scripts are best kept in the main PROJ folder to make data im
 	
 	/data - raw data used in analyses
 	/docs - any relevant writing/documents for the project (not including final manuscripts) 
-	/out_figs - figures generated through the course of analysis 
-	/out_tables - tables generated through the course of analysis, including files exported for use by other scripts 
 	/out_workspaces - .RData or .rds files or other software containers like .mxd  
-	/out_spatial - spatial layers generated through the course of analysis that probably won't be used by other researchers
 	/scripts - any scripts used to work with data
-	/temp - project-specific scratch space that should be emptied regularly
