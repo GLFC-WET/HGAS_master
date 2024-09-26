@@ -44,9 +44,9 @@ hg <- readxl::read_excel("./data/Ontario Inland 3 Species Hg 2008-2020-12-16.xls
 #' - VALUE_LOG: the log-transformed mercury concentration of the fish
 #' - SAMPLE_YEAR: the year of the sample collection
 
-data <- readxl::()
+data <- readxl::("path_to_data.xlsx") ## Update with the path to your dataset
 
-data <- hg[sample(500, 1:nrow(hg)), ]
+data <- hg[sample(500, 1:nrow(hg)), ] ## This is a subsample, used as an example
 
 ### Step 4: Select the sizes you want to predict concentrations for (in g) ----
 
@@ -90,6 +90,7 @@ INLA_MASS <-inla(VALUE_LOG ~WEIGHT_GRAM_LOG+
 ## We extract the median, and the percentiles of the distribution of probable predictions.
 #' Note: in our paper, we used the "median" to represent a single predicted value - something that is often required for downstream modelling, and what we validated this tool for
 #' but you could also export more quantiles and use simulated distributions in downstream modelling. We have given you a three quantile example so you can choose which direction you want to take your analysis.
+#' Note: To export more quantiles, you also have to update the quantiles argument in the control.predictor list of the inla function.
 
 # Extract the median predicted value
 pred.data$INLA_posterior_q50 = INLA_MASS$summary.fitted.values[, "0.5quant"]
