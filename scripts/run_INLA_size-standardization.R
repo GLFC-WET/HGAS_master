@@ -6,6 +6,7 @@
 ### Step 1: Import packages ----
 
 ## Install the INLA package, if it has not already been done
+## Install RTools if you have not already done so
 ## install.packages("INLA",repos=c(getOption("repos"),INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
 
 ## Load libraries 
@@ -55,6 +56,9 @@ sizes = c(500, 1000)
 ### Step 5: Create prediction data ----
 
 # Find the unique event combinations for the analysis
+#' Here, I am just predicting the weights for all unique combination of lakes, year and waterbodies in the database as an example
+#' if you are doing this for a particular subset of samples, you can make the unique sets to be just the particular 
+#' WATERBODY_CODE, SAMPLE_YEAR and SPECIES_NAME of the subset of interest
 
 unique.sets <- data %>% 
   dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME) %>% 
@@ -62,8 +66,12 @@ unique.sets <- data %>%
 
 pred.data <- lapply(sizes, function(x){temp <- unique.sets; temp$WEIGHT_GRAM_LOG <- log(x); temp$VALUE_LOG <- NA; return(temp)}) %>% bind_rows()
 
-pred.data <- pred.data %>% rbind(data) %>% rbind(hg %>% dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, WEIGHT_GRAM_LOG, VALUE_LOG)) %>%
-  mutate(EVENT = paste0(WATERBODY_CODE, SAMPLE_YEAR)) ## Note: you should account for the year effect where possible, but even if you only have one year for each of your lakes, the EVENT will account for the year-specific random effects in the model training.
+pred.data <- pred.data %>% rbind(data %>% dplyr::select(WATERBODY_CODE, SAMPLE_YEAR, SPECIES_NAME, WEIGHT_GRAM_LOG, VALUE_LOG)) %>%
+  mutate(EVENT = paste0(WATERBODY_CODE, SAMPLE_YEAR)) %>%
+  group_by(CONTAMINANT, SPECIES_NAME) %>%
+  mutate(WATERBODY_CODE1 = as.integer(as.factor(WATERBODY_CODE))) %>% # for inla model, this needs to be an integer
+  mutate(WATERBODY_CODE2 = WATERBODY_CODE1 + max(WATERBODY_CODE1)) %>% # for inla model, this needs to be a different set of integers
+  mutate(n_waterbody = n_distinct(WATERBODY_CODE)) ### Note: you should account for the year effect where possible, but even if you only have one year for each of your lakes, the EVENT will account for the year-specific random effects in the model training.
 
 
 ### Step 6: Run the INLA model ----
