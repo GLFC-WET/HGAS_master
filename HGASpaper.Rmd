@@ -15,7 +15,7 @@ bibliography: [packages.bib, references.bib]
 csl: environmental-science-and-technology.csl
 output: 
   bookdown::word_document2:
-    number_sections: true
+    number_sections: false
     global_numbering: true
   md_document:
     variant: gfm
@@ -73,6 +73,11 @@ names(cust_cols) <- c("5 fish or more", "less than 5 fish")
 keepfiles <- c("cust_cols")
 ```
 
+
+# Key Words
+Mercury, Arsenic, Fish, Mixed Effects Models, Contaminant Modelling
+
+
 # Abstract
 
 Concentrations of bioaccumulative contaminants in fish increase with their size and age, thus, research and monitoring of these contaminants in fish across space and time can be confounded by size covariation. To account for this, size-standardization of contaminant concentrations within fish samples is a common practice. Standardized concentrations are often estimated using within-sample regression models, also known as power series regression (referred to here as sampling event regressions, or SERs). This approach requires higher sample sizes than mixed effect models (MEMs), which suited for this application, but are not as commonly used. Herein we compare SERs to three MEM approaches; restricted maximum likelihood (REML), Bayesian inference via Markov Chain Monte Carlo (MCMC) and, approximate Bayesian inference with nested Laplace approximation (INLA). We did this for two contaminants: mercury (Hg), a contaminant known to bioaccumulate, and arsenic (As), where the bioaccumulative potential is less understood. The MEM approaches generated size-standardized concentrations for small populations (e.g., <5 fish) and/or populations that lacked the range of sizes required for SER estimates, with comparable residual and RMSE to SER estimates. INLA was determined to be the best method in most cases, because it was computationally less intensive than other approaches and showed consistent performance across a range of scenarios with sample-size limitations. Additionally, we provided example code for prediction using the R-INLA package to enable use and application in fisheries contaminant monitoring and research.  
@@ -80,10 +85,6 @@ Concentrations of bioaccumulative contaminants in fish increase with their size 
 # Synopsis
 
 This work is relevant to ecotoxicology and contaminant research where contaminant concentration is often standardized to body size or age.
-
-
-# Key Words
-Mercury, Arsenic, Fish, Mixed Effects Models, Contaminant Modelling
 
 
 # Introduction
@@ -98,7 +99,7 @@ A common approach for standardization of fish contaminant concentrations in both
 A potential alternative to SER, with fewer sample size limitations, are mixed effects modelling approaches. These approaches offer the advantage of 'borrowing' information from other sampling events across an entire dataset for to estimate overall “average” relationships while accounting for deviation in absolute values (i.e., random intercepts) or relationships (i.e., random slopes) among explanatory variables (e.g., waterbodies, times) to generate sample-level predictions and confidence intervals of contaminant concentrations for a given fish size [@bolker2009;@zuur2009a]. By borrowing strength from other observations this approach can potentially increase accuracy and allow for estimates even when sample sizes are low, or when there is an inadequate range of body sizes for the SER approach.
 
 
-A likely barrier to wide use of these mixed model methods, however, is the plethora of possible approaches, all of which have varied complexity, accuracy, and computational requirements. The most accessible implementation is the restricted maximum likelihood approach (REML), but it does not account for uncertainty in the random effects[@fong2010] which could reduce model fit and increase uncertainty in estimated concentrations. Relatively user-friendly, accessible statistical packages that facilitate the inclusion of confidence intervals around estimates are available[@INLA2017a;@R-rstanarm]. This includes bootstrapped likelihoods generated from REML, or estimation of probability distributions either with a Bayesian Markhov Chain Monte Carlo (MCMC) approach or the "approximate Bayesian" Integrated Laplace approximation (INLA) approach. Briefly, these latter two approaches differ in how they estimate probability distributions: MCMC uses randomized resampling of both samples and model parameters[@R-rstanarm], whearas INLA using the (faster) Laplace approximations for probability distributions for each model parameter[@INLA2017a;@gomez-rubio2020]. 
+A likely barrier to wide use of these mixed model methods, however, is the plethora of possible approaches, all of which have varied complexity, accuracy, and computational requirements. The differences in error handling of these distinct approaches could affect their performance and sample size requirements. The most accessible implementation is the restricted maximum likelihood approach (REML), but it does not account for uncertainty in the random effects[@fong2010] which could reduce model fit and increase uncertainty in estimated concentrations. Relatively user-friendly, accessible statistical packages that facilitate the inclusion of confidence intervals around estimates are available[@INLA2017a;@R-rstanarm]. This includes bootstrapped likelihoods generated from REML, or estimation of probability distributions either with a Bayesian Markhov Chain Monte Carlo (MCMC) approach or the "approximate Bayesian" Integrated Laplace approximation (INLA) approach. Briefly, these latter two approaches differ in how they estimate probability distributions: MCMC uses randomized resampling of both samples and model parameters[@R-rstanarm], whearas INLA using the (faster) Laplace approximations for probability distributions for each model parameter[@INLA2017a;@gomez-rubio2020]. 
 
 
 Herein we compare four statistical approaches to determine the most accurate way to perform contaminant concentration standardization by fish body size, particularly under data limited scenarios. More specifically, we compared the commonly applied SER to four mixed effects model approaches that differ in how they estimate posteriors: 1) a REML approach, 2) a REML approach with bootstrapping (REML_boot), 3) a common Bayesian inference approach (MCMC), and 4) an approximate Bayesian inference (INLA) approach. We evaluated these approaches using two inorganic contaminants of concern in fish tissue that differ in bioaccumulative potential: mercury (Hg) and arsenic (As). We hypothesized that mixed model approaches would provide comparable or more accurate predictions of contaminant concentrations relative to SERs, and that mixed models would still allow for estimation in data-scarce populations (i.e., when sample sizes are low and/or when data is limited across size ranges). Amongst mixed model approaches, we expected Bayesian approaches (i.e., MCMC and INLA) to have higher predictive accuracy than REML approaches because of the inclusion of uncertainty in random effects. We expected the REML_boot model to have improved prediction compared to the REML models for the same reason, though with less improvement than Bayesian approaches as bootstrapping is a more ‘brute force’ approach to error estimation.
@@ -166,6 +167,12 @@ ranges <- all_contaminants %>%
             N_test = sum(!test_train),
             N_fish = n())
 
+ranges <- all_contaminants %>% 
+  group_by(SPECIES_NAME, CONTAMINANT) %>% 
+  summarize(N_train = sum(test_train), 
+            N_test = sum(!test_train),
+            ratio = paste0(round(N_train/n(), 2)*100, "-", round(N_test/n(),2)*100))
+
 keepfiles <- c("keepfiles", keepfiles, "all_contaminants", "fish_amounts")
 rm(list = ls()[!ls() %in% keepfiles])
 ```
@@ -188,7 +195,7 @@ We included Hg because it is a highly bioaccumulative contaminant of global conc
 ### Test and training datasets
 
 
-To facilitate the comparison of standardization approaches, we randomly sampled the fish contaminant datasets to create test and training datasets. We focused on the ability to predict concentrations for two common weight standardization targets of 500 g and 1000 g wet weight, as these were round numbers well represented in the dataset, and commonly used in research studies[@lescord2020; @sumner2020;@lescord2019]. As such, we randomly sampled and assigned 50% of contaminant data from fish weighing 500g ± 100g and 1000g ± 100g to the test dataset, with the remaining 50% of data in those ranges and all data outside of those weight ranges assigned as a training dataset (Table S\@ref(tab:fish-summary)). 
+To facilitate the comparison of standardization approaches, we randomly sampled the fish contaminant datasets to create test and training datasets. We focused on the ability to predict concentrations for two common weight standardization targets of 500 g and 1000 g wet weight, as these were round numbers well represented in the dataset, and commonly used in research studies[@lescord2020; @sumner2020;@lescord2019]. As there were few fish that are exactly 500 g and 1000 g in the dataset, but many fish surrounding these sizes, we decided to evaluate the predictive power for these sizes by evaluating the predictive accuracy for fish of similar sizes. As such, we randomly sampled and assigned 50% of contaminant data from fish weighing 500g ± 100g and 1000g ± 100g to the test dataset, with the remaining 50% of data in those ranges and all data outside of those weight ranges assigned as a training dataset (Table S\@ref(tab:fish-summary), Figure S\@ref(fig:response-values), Figure S\@ref(fig:sampling-map)). 
  
  
 ## Standardization Approaches
@@ -205,7 +212,7 @@ ln(concentration)_{ik} = \beta_{0k} + \beta_{1k} * ln_e(weight_{ik}) + \epsilon_
 \end{equation}
 
 
-where *i* is an individual fish for each species-waterbody-year combination event *k*, β~0k~ is the intercept, β~1k~ is the slope, and ϵ~ik~ is the residual error; these models were run on training data until all combinations were exhausted. 
+where *i* is an individual fish for each species-waterbody-year combination event *k*, β~0k~ is the intercept, β~1k~ is the slope, and ϵ~ik~ is the residual error; these models were run on training data to create models for all species-contaminant-waterbody-year combinations in the study. 
 
 
 ```{r sampling-event-regressions}
@@ -906,7 +913,7 @@ rm(list = ls()[!ls() %in% keepfiles])
 ## Population medians (no standardization)
 
 
-We calculated the population median of [As] values for each of the three fish species individually from the training data of each waterbody-year combination (i.e., a sampling event), as it is possible that there is no bioaccumulation of this contaminant in some species. We included these results to provide context about the bioaccumulation of As and how that may have effected model performance. We evaluated if the median concentration was an accurate predictor of test values to demonstrate if there was no Arsenic bioaccumulation. We did not include this comparison for [Hg], as the bioaccumulation of Hg in these species is well documented. 
+We calculated the population median of [As] values for each of the three fish species individually from the training data of each waterbody-year combination (i.e., a sampling event), as it is possible that there is no bioaccumulation of this contaminant in some species. We included these results to provide context about the bioaccumulation of As and how that may have effected model performance. We evaluated if the median concentration was an accurate predictor of test values to demonstrate if there was no arsenic bioaccumulation. We did not include this comparison for [Hg], as the bioaccumulation of Hg in these species is well documented while there has been some evidence that the long-term bioaccumulation potential of arsenic is low in the species in our study [@kluke2022;@lescord2020;@williams2006]. 
 
 
 ## Comparing model fit and predictive accuracy
@@ -915,7 +922,8 @@ We calculated the population median of [As] values for each of the three fish sp
 To assess the predictive accuracy of each approach, we compared the back-transformed predicted vs observed concentrations for individual fish from the test data set using the linear relationship of the values with the *lm* function in R and Pearson correlation with the *cor.test* function in R. We also assessed the fit of each approach by calculating the RMSE of the training data set for each sampling event (i.e., distinct year-waterbody combination). Slopes and model fit based on test data reflect the generalized (i.e., out-of-sample) predictive capability of a model, while correlation values reflect the accuracy of the model in representing the trends present in the training data.
 
 
-We ran an additional analysis to assess how model performance changes with different fish and lake number sampling scenarios using each year-waterbody as distinct sample events. We trained REML and INLA models on randomly sampled training sets with a range of lake numbers and fish numbers to evaluate model predictive performance. We used the less computationally intensive INLA approach to represent both Bayesian approaches, as we determined over the course of this study, INLA and MCMC were highly similar in terms of predictive capability. This was run for a range of numbers of lakes (2,3,5,7,9,10,15,20,30,40,50,75,100,150,200,250,300,500,750,1000) and a select number of fish sample sizes for each lake (3-20, 25, 30, 35, 40, 45, 50), with 10 replicate samples for each combination. We assessed the performance of these models by evaluating whether stable model performance was achieved (i.e., maintained average and minimum Pearson correlation coefficient values of 0.8 and 0.75, respectively, as number of lakes and number of fish increased).
+## Simulation of different sampling scenarios
+We ran an additional analysis to assess how model performance changes with different fish and lake number sampling scenarios using each year-waterbody as distinct sample events. We trained REML and INLA models on randomly sampled training sets with a range of lake numbers and fish numbers to evaluate model predictive performance. We used the less computationally intensive INLA approach to represent both Bayesian approaches, as we determined over the course of this study, INLA and MCMC were highly similar in terms of predictive capability. This was run for a range of numbers of lakes (2,3,5,7,9,10,15,20,30,40,50,75,100,150,200,250,300,500,750,1000) and a select number of fish sample sizes for each lake (3-20, 25, 30, 35, 40, 45, 50), with 10 replicate samples for each combination. We assessed the performance of these models by evaluating the trends of their Pearson correlation scores as the number of fish or number of sample events increased.
 
 
 ```{r samp-size-sets, cache = T, eval = F}
@@ -1090,10 +1098,15 @@ if(!file.exists("out_workspaces/LMER_numfish_models.RDS")){
     pivot_longer(cols = c(REML_fit, REML_log_resid, REML_logfit), names_to = "response", values_to = "predicted_value") %>% 
          filter(response %in% c("REML_logfit")) %>% 
   mutate(predicted = exp(predicted_value)) %>%
-      list(mod = cor.test(.$predicted,.$VALUE))
-    
-    out <- data.frame(Cor = round(temp$mod$estimate, 2),
-                     p = round(temp$mod$p.value, 2))}
+      list(mod = cor.test(.$predicted,.$VALUE),
+           mod2 = try(lm(VALUE~predicted, .x)))
+      
+      out <- data.frame(Cor = round(temp$mod$estimate, 2),
+                     p = round(temp$mod$p.value, 2),
+                     R2 = ifelse(class(temp$mod2) != "try-error", round(temp$mod2$coefficients[2], 2), NA),
+                     lm.p = ifelse(class(temp$mod2) != "try-error", round(summary(temp$mod2)$coefficients[2,4], 2), NA),
+                     confint =  ifelse(class(temp$mod2) != "try-error", str_c(round(confint(temp$mod2, "predicted", .95),2), collapse = "-"), NA))
+      }
     
     LMER_fish_data[[count]] <- out
     names(LMER_fish_data)[count] <- x
@@ -1213,10 +1226,14 @@ if(!file.exists("out_workspaces/INLA_numfish_models.RDS")){
     pivot_longer(cols = c(INLA_fit, INLA_log_resid, INLA_resid), names_to = "response", values_to = "predicted_value")%>% 
          filter(response %in% c("INLA_fit")) %>%
   mutate(predicted = exp(predicted_value)) %>%
-      list(mod = cor.test(.$predicted,.$VALUE))
+      list(mod = cor.test(.$predicted,.$VALUE),
+           mod2 = try(lm(VALUE~predicted, .x)))
       
       out <- data.frame(Cor = round(temp$mod$estimate, 2),
-                     p = round(temp$mod$p.value, 2))
+                     p = round(temp$mod$p.value, 2),
+                     R2 = ifelse(class(temp$mod2) != "try-error", round(temp$mod2$coefficients[2], 2), NA),
+                     lm.p = ifelse(class(temp$mod2) != "try-error", round(summary(temp$mod2)$coefficients[2,4], 2), NA),
+                     confint =  ifelse(class(temp$mod2) != "try-error", str_c(round(confint(temp$mod2, "predicted", .95),2), collapse = "-"), NA))
     }
     
     INLA_fish_data[[count]] <- out
@@ -1250,6 +1267,7 @@ rm(list = ls()[!ls() %in% keepfiles])
 ```
 
 
+## Relative computational requirements
 Computational times were assessed in the context of analyses performed in `r version$version.string` [@R-base] on a Dell Latitude 5510 PC running Windows 10 Enterprise with a 1.70GHz, 2208 MHz 4 Core(s), 8 logical processor, 16 GB of physical memory and 34.6 GB of virtual memory. All data transformations, summarizations and graphing were performed with the *tidyverse* v`r packageVersion("tidyverse")`, *ggplot2* v`r packageVersion("ggplot2")` and *ggpubr* v`r packageVersion("ggpubr")` packages [@R-tidyverse; @R-ggplot2; @R-ggpubr].
 
 
@@ -1480,7 +1498,7 @@ text.info <- lm_sums %>%
 We found that mixed effects approaches performed better than SER for representing the trends in the data, as represented by improved correlations. The mixed models also enabled predictions of values for low sample sizes with only slight accuracy reductions in the As models or marked accuracy improvements in the Hg models, compared to SER ([As] Figure \@ref(fig:pred-resid-table-fig-As), [Hg] Figure \@ref(fig:pred-resid-table-fig-Hg), Figure S\@ref(fig:pred-1000g-rem)). The REML, MCMC and INLA values were generally good at representing the trends in the samples, as they were more strongly correlated to actual concentrations (r ranging from `r text.info$cor[text.info$CONTAMINANT == "As" & text.info$response == "MEM"]` in [As] and `r text.info$cor[text.info$CONTAMINANT == "Hg" & text.info$response == "MEM"]` in [Hg]) than predictions from SER models (r ranging from  `r text.info$cor[text.info$CONTAMINANT == "As" & text.info$response == "SER"]` in [As] and `r text.info$cor[text.info$CONTAMINANT == "Hg" & text.info$response == "SER"]` in [Hg]) (Figure \@ref(fig:pred-resid-table-fig-As), \@ref(fig:pred-resid-table-fig-Hg), Figure S\@ref(fig:pred-1000g-rem)). Prediction accuracy of for [Hg] with the REML, MCMC and INLA (slopes deviating `r text.info$slp[text.info$CONTAMINANT == "Hg" & text.info$response == "MEM"]` from 1) approaches was better than SER (slopes deviating `r text.info$slp[text.info$CONTAMINANT == "Hg" & text.info$response == "SER"]` from 1), but [As] prediction in REML, MCMC and INLA (slopes deviating `r text.info$slp[text.info$CONTAMINANT == "As" & text.info$response == "MEM"]` from 1) was slightly poorer, compared to SER (slopes deviating `r text.info$slp[text.info$CONTAMINANT == "As" & text.info$response == "SER"]` from 1). The reduced prediction accuracy in [As] was small, being generally with slopes within 0.05 of SER values. The reduction in [As] mixed model performance may have been due to the lower overall dataset sizes for the [As] models, and possibly, also influenced by the assumptions of relationships between weight and [As] made in the structure of the mixed models. As [As] was more accurately predicted using medians for Northern Pike and Walleye than any of the linear modelling approaches, that appears to be the case for those two species. Lake Trout might be an exception from this, as it could be prone to slightly more bioaccumulation of As due to it's slow growth rate. The increased accuracy of [Hg] models can be attributed to the elimination of influential residuals that resulted from the magnification of error after back-transformation of the log-transformed SER predictions. Also, the residuals between the back-transformed predicted values and measured concentrations for the different mixed modeling approaches were generally similar or smaller than those of the SER approach for both [As] (Figure \@ref(fig:pred-resid-table-fig-As)) and [Hg] (Figure \@ref(fig:pred-resid-table-fig-Hg)) models. Interestingly, attempts to improve the REML approach with bootstrapping did not increase accuracy of predictions, even resulting in decreased correlation strengths and larger deviations of slopes from a one-to-one relationship in some cases (specifically for the [Hg] Northern Pike and Lake Trout models (Figure  \@ref(fig:pred-resid-table-fig-Hg)), and the [As] Walleye model (Figure \@ref(fig:pred-resid-table-fig-As)) ([As]). This is likely because the bootstrapping process overfit the models, as demonstrated by decreased RMSE (Figure \@ref(fig:RMSE-N-WE)), which reduced the ability of the models to produce generalized predictions. 
 
 
-All of the mixed model approaches were just as effective in lakes with <5 fish as they were in lakes with larger numbers of fish. SER is limited compared to mixed model approaches as it cannot borrow information from other samples. In mixed models, an overall slope is created across all samples and individual lake and year slopes are modelled relative to the overall slope: through this, they effectively borrow information from other samples to enhance estimation. Though the mixed model approach was only required for improving prediction for the highly bioaccumulative contaminant (i.e., [Hg]), the accuracy of mixed model approaches were always comparable or better than SER or basic population medians. INLA was often the best performing mixed model approach. Mixed model approaches improved prediction for datasets with less than 6000 training fish, which would be applicable to many studies. The mixed model approaches effectively added more good or highly accurate predictions to the dataset, which may explain the increased correlation of predictions and measured values. Nevertheless, the mixed model approaches are a suitable solution for contaminant prediction in a variety of dataset sizes and contaminants of variable bioaccumulative potential.  
+All of the mixed model approaches effectively increased the number of sample events that could be used for prediction. Mixed model approaches were just as effective in lakes with <5 fish as they were in lakes with larger numbers of fish. This was demonstrated by the similar residual distributions of small sample events (<5 fish) and large sample events (>5 fish) by the mixed model approaches (Figure \@ref(fig:pred-resid-table-fig-As), \@ref(fig:pred-resid-table-fig-Hg)). SER is limited compared to mixed model approaches as it cannot generate predictions for low-sample numbers as it does not borrow information from other samples. The ability to create predictions for sample events that do not fulfill the requirements of SER is the main benefit of taking a mixed-model approach, though the mixed model approach also improved prediction for the highly bioaccumulative contaminant (i.e., [Hg]). In this study, the accuracy of mixed model approaches were always comparable or better than SER or basic population medians so there does not appear to be a trade-off of accuracy for the prediction of additional, low-sample number sample events. The mixed model approaches allowed for the inclusion of sample events with less than 5 fish, resulting in a higher number of total sample events and individual fish concentration predictions, compared to SER (Table S1).      
 
 
 ```{r RMSE-N-WE, fig.width = 10, fig.height = 7, fig.cap= "Root mean squared error (RMSE) from sampling events trained with different numbers of fish. RMSE of training set sampling events are compared to the number of fish used from the sampling event that were included in the training dataset. For events with less than 5 fish, and events with 5 or more fish, a boxplot displays the 25th and 75th percentiles and the median RMSE, with the whiskers extending out to 1.5 x the interquartile range. Higher RMSE means there was more variation in the data overall, and a wider box means there was more variability in the fit of predicted training values between distinct waterbody-year sample events. The figure shows data for [As] and [Hg] Sample event regressions (SER), restricted maximum likelihood (REML), restricted maximum likelihood with bootstrapping (boot_REML), Markhov Chain Monte Carlo (MCMC) and Integrated Laplace Approximation (INLA) models."}
@@ -1500,7 +1518,7 @@ ggplot(models_RMSE %>%
 Differences in the RMSE for training data of the different sampling events illustrated how well the different approaches could explain the data in that training set. INLA and MCMC models were more tightly fitted to the training data for the distinct sampling events, shown by lower RMSE, with fits comparable to those of SER (Figure \@ref(fig:RMSE-N-WE)). Conversely, REML approaches generally had distributions with a wider range of RMSE, including higher RMSE points for various sample-sizes. These high influential values indicated that the patterns in some sampling events were more poorly represented than others in the global model. Boot_REML models often had the highest fits to the training data, with lower RMSE than the other mixed model approaches or SER, but this did not correspond to the best predictive accuracy. This is likely due to bootstrapping procedures overfitting results to the training data, which reduced the extrapolative predictive capability of the models.
 
 
-INLA and MCMC approaches had the best fits at low fish sample numbers, with fewer influential points than other mixed model approaches or SER. There was a trend amongst the models that low sample number events had lower RMSEs, likely because fewer values were fit and therefore overall variation was reduced. All approaches had RMSE that generally increased and stabilized at about 6 fish per sampling event but models were fairly comparable at event sizes below 6, with the exception of some events with influential points (Figure S\@ref(fig:extra-RMSE-N)). These results suggest that a minimum sample size of 6 fish/sample should be collected by monitoring and research programs when size standardized contaminants are used. MCMC and INLA generally appeared to have fewer large influential RMSE values, and a more even distribution of RMSE. These approaches were not restricted to minimum sample sizes and, they had improved precision and model fit, given they could account for variation in lake-level slopes and intercepts[@sonesten2003;@somers1993;@INLA2009a; @INLA2013a]. 
+INLA and MCMC approaches had the best fits at low fish sample numbers, with fewer influential points than other mixed model approaches or SER. There was a trend amongst the models that low sample number events had lower RMSEs, likely because fewer values were fit and therefore overall variation was reduced. All approaches had RMSE that generally increased and stabilized at about 6 fish per sampling event but models were fairly comparable at event sizes below 6, with the exception of some events with influential points (Figure S\@ref(fig:extra-RMSE-N)). These results suggest that, while higher sample numbers and size range distributions are always preferable, samples with as little as 6 fish may still be able to be used in developing concentration predictions using mixed-model approaches when used in conjunction with a larger database or dataset. This information may be helpful for developing guidelines for field-based logistical decisions where remote access, sampling difficulty or expense may conflict with sample number objectives. MCMC and INLA generally appeared to have fewer large influential RMSE values, and a more even distribution of RMSE. These approaches were not restricted to minimum sample sizes and, they had improved precision and model fit, given they could account for variation in lake-level slopes and intercepts[@sonesten2003;@somers1993;@INLA2009a; @INLA2013a]. 
 
 
 INLA and MCMC models had good model fit, without a detectable loss in accuracy, making them suitable for understanding the mechanisms of prediction. Understanding the model fit of predictive approaches is not always necessary to ensure predictive accuracy, as higher fits can be higher due to exclusion of influential values or lack of balance in a dataset. However, many researchers are interested in the relationships involved with these predictions. Size-concentration relationships can provide insight into bioaccumulation differences between waterbodies. The improved fit provided by the INLA and MCMC approaches showed that they were better at explaining the patterns in the training data than REML, and the improved fits had little or no cost to predictive accuracy (i.e., the models are better at predicting the general population trends and individual values). Thus, if a researcher is interested in understanding the mechanisms of prediction, the Bayesian approaches would be suitable options because they provide a more thorough evaluation of the selected dataset as the generation of posterior distributions to reduces the influence of individual influential values. INLA would be recommended for smaller datasets, as there was marked improvements of the INLA approach compared to MCMC on the smaller [As] datasets. 
@@ -1525,19 +1543,19 @@ knitr::kable(model_times, caption = "Computational time (in seconds) for each of
 ```
 
 
-While our results show the benefit of using Bayesian modeling approaches when size-standardizing contaminant concentrations in fish, these approaches are more complex and thus, can have higher computational requirements. Computation times ranged from less than one second to 47248 seconds (13.1 hours) across modelling approaches and species. Overall, INLA models were much less computationally intensive compared to the MCMC and REML_boot implementations (Table \@ref(tab:Times)). While REML was, generally, the quickest of all modeling approaches, INLA was a close second, with computational times that were orders of magnitude lower than REML_boot or MCMC (Table \@ref(tab:Times)). The overall accuracy of the INLA approach, when compared to the REML_boot approach, and paired with its improved speed compared to the MCMC approach suggests that INLA was the most viable approach for standardizing fish contaminant values. 
+While our results demonstrated that Bayesian models could be used to create predictions of contaminant concentrations in fish for lakes with low sample sizes, these approaches are more complex and thus, can have higher computational requirements. Computation times ranged from less than one second to 47248 seconds (13.1 hours) across modelling approaches and species. Overall, INLA models were much less computationally intensive compared to the MCMC and REML_boot implementations (Table \@ref(tab:Times)). While REML was, generally, the quickest of all modeling approaches, INLA was a close second, with computational times that were orders of magnitude lower than REML_boot or MCMC (Table \@ref(tab:Times)). Researchers may opt to use MCMC over INLA, despite the additional computational requirements if they are interested in investigating the posterior distributions of parameters or predictions. INLA, being an approximate Bayesian approach, may be less adept at simulating the probability distributions compared to the repeated sampling approaches that are employed in MCMC. However, for predictive purposes, the overall accuracy of the INLA approach, when compared to the REML_boot approach, and paired with its improved speed compared to the MCMC approach suggests that INLA was the most viable approach for standardizing fish contaminant values. 
 
 
-In our simulated samplings, we confirmed that INLA and REML were effective at creating predictions for lakes with low sample numbers, but the approaches both required a large number of lakes. Northern Pike and Lake Trout [Hg] prediction was possible in simulations where 4 fish were used, but these predictions required more than 100 lakes (Figure S\@ref(fig:LThgREML-prednum), S\@ref(fig:NPhgREML-prednum), S\@ref(fig:LThgINLA-prednum), S\@ref(fig:NPhgINLA-prednum)). For example, prediction of Lake Trout [Hg] required models with over 200 fish to predict using four fish per lake. Arsenic results were more varied, with few combinations passing our quality thresholds for acceptable performance stability and correlation strength. However, none of the [As] datasets had very large number of lakes, which limited this line of investigation. These results show that prediction of contaminant concentrations with few fish per sample event is possible when larger, existing datasets are leveraged. We suggest that creating predictive models that leverage the power of existing large datasets with hundreds of lakes, such as the MECP database used in this study, would be the most effective way to employ an INLA standardization approach.
+Our evaluations of different sampling scenarios of varied numbers of lakes and fish numbers per sample event (see Methods: Simulation of different sampling scenarios) confirmed that INLA and REML were effective at creating predictions for lakes with low sample numbers, but both required a large number of lakes. Northern Pike and Lake Trout [Hg] prediction was possible in simulations where 4 fish were used, but these predictions required more than 100 lakes (Figure S\@ref(fig:LThg-prednum), S\@ref(fig:NPhg-prednum)). For example, prediction of Lake Trout [Hg] required models with over 200 fish to predict using four fish per lake. Arsenic results were more varied, with few combinations passing our quality thresholds for acceptable performance stability and correlation strength. However, none of the [As] datasets had very large number of lakes, which limited this line of investigation. These results show that prediction of contaminant concentrations with few fish per sample event is possible when larger, existing datasets are leveraged. We suggest that creating predictive models that leverage the power of existing large datasets with hundreds of lakes, such as the MECP database used in this study, would be the most effective way to employ an INLA standardization approach.
 
 
-The simulated samplings also revealed that REML models perform better with more balanced sampling designs than INLA models. Generally, in the random samples, which had an equal number of fish selected for each lake sample event included in the sample, REML (Figure S\@ref(fig:LTasREML-prednum), S\@ref(fig:NPasREML-prednum), S\@ref(fig:WEasREML-prednum), S\@ref(fig:LThgREML-prednum), S\@ref(fig:NPhgREML-prednum), S\@ref(fig:WEhgREML-prednum)) performed better than INLA models (Figure S\@ref(fig:LTasINLA-prednum), S\@ref(fig:NPasINLA-prednum), S\@ref(fig:WEasINLA-prednum), S\@ref(fig:LThgINLA-prednum), S\@ref(fig:NPhgINLA-prednum), S\@ref(fig:WEhgINLA-prednum)). This contrasted with the results from the assessment of the test dataset, where REML and INLA models performed comparably in terms of correlation scores (Figure \@ref(fig:pred-resid-table-fig-As), Figure \@ref(fig:pred-resid-table-fig-Hg)). As the REML models had slightly lower performance in models created from the test dataset (Figure \@ref(fig:pred-resid-table-fig-As), Figure \@ref(fig:pred-resid-table-fig-Hg)), this suggests that the REML models are more sensitive to sampling imbalance than INLA models. 
+The simulated samplings also revealed that REML models perform better with more balanced sampling designs than INLA models. Generally, in the random samples, which had an equal number of fish selected for each lake sample event included in the sample, REML performed better than INLA models (Figure S\@ref(fig:LTas-prednum), S\@ref(fig:NPas-prednum), S\@ref(fig:WEas-prednum), S\@ref(fig:LThg-prednum), S\@ref(fig:NPhg-prednum), S\@ref(fig:WEhg-prednum)). This contrasted with the results from the assessment of the test dataset, where REML and INLA models performed comparably in terms of correlation scores (Figure \@ref(fig:pred-resid-table-fig-As), Figure \@ref(fig:pred-resid-table-fig-Hg)). As the REML models had slightly lower performance in models created from the test dataset (Figure \@ref(fig:pred-resid-table-fig-As), Figure \@ref(fig:pred-resid-table-fig-Hg)), this suggests that the REML models are more sensitive to sampling imbalance than INLA models. These results suggest that INLA would be preferred over REML in scenarios, for example, where researchers fail to collect sufficient numbers or size ranges of fish for each sample event - thus resulting in imbalanced datasets. In scenarios where there are balanced sample collections and a high number of sample events, the easier to implement REML models are likely to perform comparably to INLA. 
 
 
-The INLA models developed from the simulated samples may have had a more consistent predictive behaviour with respect to increasing sample size (e.g., number of fish, or number of lakes) than REML models. This pattern was particularly apparent in the Walleye [Hg] dataset, where the highest average correlation scores for REML models were in lakes with 10-12 fish (Figure S\@ref(fig:WEhgREML-prednum)), while INLA models generally had an increase in average correlation with increases in number of fish or number of lakes (Figure S\@ref(fig:WEhgINLA-prednum)). This characteristic of INLA models means any addition of data to the training dataset will benefit the overall INLA model, whereas the behaviour of REML models was more variable.
+The INLA models developed from the simulated samples may have had a more consistent predictive behaviour with respect to increasing the size of the overall dataset (i.e., have improved prediction when either the number of fish per sample event, or number of lakes increased) than REML models. This pattern was particularly apparent in the Walleye [Hg] dataset, where increases in numbers of fish didn’t result in increased correlations for models with 2-75 lakes (Figure S\@ref(fig:WEhg-prednum))), while INLA models generally had an increase in average correlation with increases in number of fish for all sizes of lakes (Figure S\@ref(fig:WEhg-prednum)). This characteristic of INLA models means any addition of data to the training dataset will benefit the overall INLA model, whereas REML models are only guaranteed to have increased performance with an increasing number of lakes and typically had good performance in models with 10-20 fish. 
 
 
-Each modelling approach had different benefits and drawbacks in terms of implementation. Based on the user experience during this study, the relative difficulty in application of each approach was REML<SER<MCMC<INLA. The REML approach was simple enough that a beginner R user could implement it quickly, without requiring knowledge of programming. The SER approach required more programming knowledge to implement efficiently, and a significant amount of pre-screening of data to ensure that a large enough span of fish sies were included when developing a curve. There were more documentation and reading requirements to implement the MCMC and INLA models. Additionally, INLA, with the current INLA package implementation, poses a higher risk of incorrect implementation since the model formula input deviates from the typical R notation. There is thorough documentation of the model notation in the INLA package[@INLA2015a], but it is nonetheless a consideration in the implementation of this approach, as it added complexity when assessing the nested random effect of waterbody and sampling event.
+Each modelling approach had different benefits and drawbacks in terms of implementation. Based on the user experience during this study, the relative difficulty in application of each approach was REML<SER<MCMC<INLA. The REML approach was simple enough that a beginner R user could implement it quickly, without requiring knowledge of programming. The SER approach required more programming knowledge to implement efficiently, and a significant amount of pre-screening of data to ensure that a large enough span of fish sizes were included when developing a curve. Our approach was less time intensive, but less subjective than the involved model fitting of individual samples that are employed by some researchers performing SER. Our approach may have penalized the accuracy results of SER in our study, but would have also resulted in exclusion of more sample events from the SER analysis. There were more documentation and reading requirements to implement the MCMC and INLA models. Additionally, INLA, with the current INLA package implementation, poses a higher risk of incorrect implementation since the model formula input deviates from the typical R notation. There is thorough documentation of the model notation in the INLA package[@INLA2015a], but it is nonetheless a consideration in the implementation of this approach, as it added complexity when assessing the nested random effect of waterbody and sampling event. 
 
 
 Conceptually, the SER approach is the simplest to understand, given that it is essentially a group of independent linear models. However, using the SER approach to standardize the fish contaminant comparisons across lakes effectively removed some of the variation that is present in regional datasets, and thereby underestimates uncertainty. The REML, MCMC and INLA approaches account for this uncertainty in their model structure by allowing slopes and intercepts to vary by lake, and these MEM approaches quantify this variation partitioning in the error term. MEMs are more conceptually challenging in terms of model specification, however, Bayesian models have more complexity compared than the standard REML approach. The complexity of the Bayesian (MCMC), and approximated Bayesian (INLA) approaches should be considered when model tuning is required, which is often required for smaller datasets (<300 fish). Relatively few studies[@visha2015; @visha2018; @kluke2022] have used Bayesian approaches to account for size effects, compared to more traditional linear modelling. This may be, in part, due to the lack of guidelines for best practices during implementation. For researchers pursuing predictive accuracy alone, the REML approach may be the best option due to the ease of implementation. Probability distributions from Bayesian models can inform sample size adjustments: variation around intercepts can provide information on sample size and variation around slopes can indicate if the range of sites sampled are sufficient.
@@ -1634,8 +1652,10 @@ INLA_effects <- INLA_data %>%
 # Supplemental Figures
 
 
-```{r response-values, fig.width=10.5, fig.cap = "Number of fish at different body weights and contaminant concentrations for [As] and [Hg]. Vertical black lines show the weights that are commonly used for standardization."}
+```{r response-values, fig.width=10.5, fig.cap = "Number of fish at different body weights and contaminant concentrations for [As] and [Hg]. Vertical shaded areas show the distribution of samples that were targeted for testset validation."}
 main = ggplot(all_contaminants %>% filter(CONTAMINANT == "As"), aes(WEIGHT_GRAM, VALUE, color = SPECIES_NAME)) + 
+  geom_rect(aes(xmin = 400, xmax = 600, ymin=0, ymax = Inf), fill = "grey88", color = NA)+
+  geom_rect(aes(xmin = 900, xmax = 1100, ymin=0, ymax = Inf), fill = "grey88", color = NA)+
   geom_point() +  
   theme_minimal() + theme(axis.title = element_blank(), axis.text = element_blank(), plot.margin = unit(c(0, 0, 0, 0), "inches")) + scale_y_log10() + scale_x_log10()
 
@@ -1644,8 +1664,13 @@ conc <- ggplot(all_contaminants%>% filter(CONTAMINANT == "As"), aes(VALUE, color
   theme_minimal() + xlab("[As] ug/g wet weight") +ylab("")+ coord_flip() + scale_x_log10()+scale_y_reverse() + theme(plot.margin = unit(c(0, 0, 0, 0), "inches"), axis.text.x = element_blank())
 
 weight = ggplot(all_contaminants%>% filter(CONTAMINANT == "As"), aes(WEIGHT_GRAM, color = SPECIES_NAME)) + 
+  geom_rect(aes(xmin = 400, xmax = 600, ymin=0, ymax = Inf), fill = "grey88", color = NA)+
+  geom_rect(aes(xmin = 900, xmax = 1100, ymin=0, ymax = Inf), fill = "grey88", color = NA)+
   geom_density(aes(y = after_stat(count)), position = "identity", fill = NA) + 
-  geom_vline(xintercept = c(400, 1100))+ scale_x_log10() +scale_y_reverse()+ xlab("wet weight (g)") +ylab("") + theme(plot.margin = unit(c(0, 0, 0, 0), "inches"), axis.text.y = element_blank())
+  scale_x_log10() +
+  scale_y_reverse()+ 
+  xlab("wet weight (g)") +ylab("") + theme(plot.margin = unit(c(0, 0, 0, 0), "inches"), axis.text.y = element_blank())+ 
+  theme_minimal() 
 
 plots_As<- ggarrange(conc, main, NULL, weight, 
                      widths = c(0.25, 1), heights = c(1, 0.3), 
@@ -1653,7 +1678,9 @@ plots_As<- ggarrange(conc, main, NULL, weight,
                      common.legend = T,
                      align = "hv")
 
-main = ggplot(all_contaminants %>% filter(CONTAMINANT == "Hg"), aes(WEIGHT_GRAM, VALUE, color = SPECIES_NAME)) + 
+main = ggplot(all_contaminants %>% filter(CONTAMINANT == "Hg"), aes(WEIGHT_GRAM, VALUE, color = SPECIES_NAME)) +
+  geom_rect(aes(xmin = 400, xmax = 600, ymin=0, ymax = Inf), fill = "grey88", color = NA)+
+  geom_rect(aes(xmin = 900, xmax = 1100, ymin=0, ymax = Inf), fill = "grey88", color = NA)+
   geom_point() +  
   theme_minimal() + theme(axis.title = element_blank(), axis.text = element_blank(), plot.margin = unit(c(0, 0, 0, 0), "inches")) + scale_y_log10() + scale_x_log10()
 
@@ -1661,9 +1688,14 @@ conc <- ggplot(all_contaminants%>% filter(CONTAMINANT == "Hg"), aes(VALUE, color
   geom_density(aes(y = after_stat(count)), position = "identity", fill = NA) + 
   theme_minimal() + xlab("[Hg] ug/g wet weight") +ylab("")+ coord_flip() + scale_x_log10()+scale_y_reverse() + theme(plot.margin = unit(c(0, 0, 0, 0), "inches"), axis.text.x = element_blank())
 
-weight = ggplot(all_contaminants%>% filter(CONTAMINANT == "Hg"), aes(WEIGHT_GRAM, color = SPECIES_NAME)) + 
-  geom_density(aes(y = after_stat(count)), position = "identity", fill = NA) + 
-  geom_vline(xintercept = c(400, 1100))+ scale_x_log10() +scale_y_reverse()+ xlab("wet weight (g)") +ylab("") + theme(plot.margin = unit(c(0, 0, 0, 0), "inches"), axis.text.y = element_blank())
+weight = ggplot(all_contaminants%>% filter(CONTAMINANT == "Hg"), aes(WEIGHT_GRAM, color = SPECIES_NAME)) +
+  geom_rect(aes(xmin = 400, xmax = 600, ymin=0, ymax = Inf), fill = "grey88", color = NA)+
+  geom_rect(aes(xmin = 900, xmax = 1100, ymin=0, ymax = Inf), fill = "grey88", color = NA)+
+  geom_density(aes(y = after_stat(count)), position = "identity", fill = NA) +
+  scale_x_log10() +scale_y_reverse()+ 
+  xlab("wet weight (g)") +ylab("") + 
+  theme(plot.margin = unit(c(0, 0, 0, 0), "inches"), axis.text.y = element_blank())+ 
+  theme_minimal() 
 
 plots_Hg<- ggarrange(conc, main, NULL, weight, 
                      widths = c(0.25, 1), heights = c(1, 0.3), 
@@ -1675,6 +1707,11 @@ ggarrange(plots_As, plots_Hg, common.legend = T,
                      align = "hv", ncol =2)
 ```
 
+```{r sampling-map, fig.cap= "Conceptual disgram of testing and training dataset construction for each fish species. The figure shows the theoretical distribution of fish sizes as a blue line representing a density distribution, the selection of targeted sizes as blue rectangles and then a flow diagram showing the different data splits.", fig.width= 8}
+## include experimental plot design fig from ILBMB report
+knitr::include_graphics("sampling_conceptual_diagram.png", dpi = 200)
+
+```
 
 
 ```{r pred-1000g-rem, fig.width=10, fig.height=8.5, fig.cap = "Predicted concentration of [As] and [Hg] in tissue of 400-600g and 900-1100g fish compared to measured values. Points display each individual fish prediction (with blue points representing predictions at sampling events with less than 5 fish, and black points representing predictions from sampling events with at least 5 fish) and a solid red line shows a 1-1 relationship. The dashed red lines provide an interval for predicted values that are within 25% of the measured value. Correlation statistics are included where there were enough values to compute them. Axes are shown on a log scale, as values were modelled from log-transformed values."}
@@ -1762,7 +1799,7 @@ ggarrange(plot1, plot2, ncol =1, common.legend = T)
 ```
 
 
-```{r extra-RMSE-N, fig.width = 8, fig.height = 10,  fig.cap= "Root mean squared error (RMSE) of models from sampling events trained with different numbers of fish. RMSE of training set sampling events are compared to the number of fish used from the sampling event that were included in the training dataset. For each N, a boxplot displays the 25th and 75th percentiles and the median RMSE, with the whiskers extending out to 1.5 x the interquartile range. A line is plotted across the median values to show the overall trend in the values."}
+```{r extra-RMSE-N, fig.width = 8, fig.height = 10, fig.cap= "Root mean squared error (RMSE) of models from sampling events trained with different numbers of fish. RMSE of training set sampling events are compared to the number of fish used from the sampling event that were included in the training dataset. For each N, a boxplot displays the 25th and 75th percentiles and the median RMSE, with the whiskers extending out to 1.5 x the interquartile range. A line is plotted across the median values to show the overall trend in the values."}
 
 name_combs <- unique(models_RMSE %>% group_by() %>% dplyr::select(CONTAMINANT, SPECIES_NAME)) %>% arrange(CONTAMINANT)
 
@@ -1831,7 +1868,7 @@ plot1
 
 
 
-```{r pred-fish-num, fig.width=10, fig.height=8, fig.cap = "Predicted concentration of [As] and [Hg] in fish tissue of 400-600g and 900-1100g fish compared to known values for models built with different maximum numbers of fish in training events. Points represent the correlations of predicted contaminant concentrations to measured values for the test dataset.", include=TRUE}
+```{r pred-fish-num, include=TRUE}
 
 nfishes <- rbind(LMER_fish_data %>% 
                    mutate(Anal. = "REML"), 
@@ -1865,6 +1902,41 @@ nfishes <- rbind(LMER_fish_data %>%
   mutate(choice=ifelse(best_nfish_lake, av.Cor, NA),
          SPECIES_NAME = SPECIES_NAME)
 
+plotLTHg <- ggplot(nfishes %>% filter(SPECIES_NAME == "Lake Trout", CONTAMINANT == "Hg"), aes(as.numeric(as.character(num_fish)), av.Cor, color = Anal., fill = Anal.)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = minCor, ymax = maxCor), alpha = 0.5) +
+  ggtitle("Lake Trout mercury") + facet_grid(num_lakes~., scales = "free_x") + 
+  xlab("Number of fish per lake") + ylab("Pearson correlation score for predicted and measured [Hg]")
+
+plotLTAs <- ggplot(nfishes %>% filter(SPECIES_NAME == "Lake Trout", CONTAMINANT == "As"), aes(as.numeric(as.character(num_fish)), av.Cor, color = Anal., fill = Anal.)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = minCor, ymax = maxCor), alpha = 0.5) +
+  ggtitle("Lake Trout arsenic") + facet_grid(num_lakes~., scales = "free_x")+ 
+  xlab("Number of fish per lake") + ylab("Pearson correlation score for predicted and measured [As]")
+
+plotNPHg <- ggplot(nfishes %>% filter(SPECIES_NAME == "Northern Pike", CONTAMINANT == "Hg"), aes(as.numeric(as.character(num_fish)), av.Cor, color = Anal., fill = Anal.)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = minCor, ymax = maxCor), alpha = 0.5) +
+  ggtitle("Northern Pike mercury") + facet_grid(num_lakes~., scales = "free_x")+ 
+  xlab("Number of fish per lake") + ylab("Pearson correlation score for predicted and measured [Hg]")
+
+plotNPAs <- ggplot(nfishes %>% filter(SPECIES_NAME == "Northern Pike", CONTAMINANT == "As"), aes(as.numeric(as.character(num_fish)), av.Cor, color = Anal., fill = Anal.)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = minCor, ymax = maxCor), alpha = 0.5) +
+  ggtitle("Northern Pike arsenic") + facet_grid(num_lakes~., scales = "free_x")+ 
+  xlab("Number of fish per lake") + ylab("Pearson correlation score for predicted and measured [As]")
+
+plotWEHg <- ggplot(nfishes %>% filter(SPECIES_NAME == "Walleye", CONTAMINANT == "Hg"), aes(as.numeric(as.character(num_fish)), av.Cor, color = Anal., fill = Anal.)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = minCor, ymax = maxCor), alpha = 0.5) +
+  ggtitle("Walleye mercury") + facet_grid(num_lakes~., scales = "free_x")+ 
+  xlab("Number of fish per lake") + ylab("Pearson correlation score for predicted and measured [Hg]")
+
+plotWEAs <- ggplot(nfishes %>% filter(SPECIES_NAME == "Walleye", CONTAMINANT == "As"), aes(as.numeric(as.character(num_fish)), av.Cor, color = Anal., fill = Anal.)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = minCor, ymax = maxCor), alpha = 0.5) +
+  ggtitle("Walleye arsenic") + facet_grid(num_lakes~., scales = "free_x")+ 
+  xlab("Number of fish per lake") + ylab("Pearson correlation score for predicted and measured [As]")
 
 plotLTHgREML <- ggplot(nfishes %>% filter(SPECIES_NAME == "Lake Trout", CONTAMINANT == "Hg", Anal. =="REML"), aes(num_lakes, num_fish, fill = choice)) + 
   geom_tile(aes(width = 1, height = 1)) + 
@@ -1955,65 +2027,87 @@ plotWEAsINLA <- ggplot(nfishes %>% filter(SPECIES_NAME == "Walleye", CONTAMINANT
 ```
 
 
+```{r LTas-prednum, fig.width=8.5, fig.height=10, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [As] INLA and REML predictions from different lake and fish number combinations. Maximum and minimum correlations for each fish number (x-axis) and lake number (vertical panels) combination are represented by a shaded area and the median correlation for the simulations are represented as a central line. INLA and REML results are distinguished by colour."}
+plotLTAs
+```
+
+```{r NPas-prednum, fig.width=8.5, fig.height=11, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [As] INLA and REML predictions from different lake and fish number combinations. Maximum and minimum correlations for each fish number (x-axis) and lake number (vertical panels) combination are represented by a shaded area and the median correlation for the simulations are represented as a central line. INLA and REML results are distinguished by colour."}
+plotNPAs
+```
+
+```{r WEas-prednum, fig.width=8.5, fig.height=11, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [As] INLA and REML predictions from different lake and fish number combinations. Maximum and minimum correlations for each fish number (x-axis) and lake number (vertical panels) combination are represented by a shaded area and the median correlation for the simulations are represented as a central line. INLA and REML results are distinguished by colour."}
+plotWEAs
+```
+
+```{r LThg-prednum, fig.width=8, fig.height=15, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [Hg] INLA and REML predictions from different lake and fish number combinations. Maximum and minimum correlations for each fish number (x-axis) and lake number (vertical panels) combination are represented by a shaded area and the median correlation for the simulations are represented as a central line. INLA and REML results are distinguished by colour."}
+plotLTHg
+```
+
+```{r NPhg-prednum, fig.width=8, fig.height=15, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [Hg] INLA and REML predictions from different lake and fish number combinations. Maximum and minimum correlations for each fish number (x-axis) and lake number (vertical panels) combination are represented by a shaded area and the median correlation for the simulations are represented as a central line. INLA and REML results are distinguished by colour."}
+plotNPHg
+```
+
+```{r WEhg-prednum, fig.width=8, fig.height=15, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [Hg] INLA and REML predictions from different lake and fish number combinations. Maximum and minimum correlations for each fish number (x-axis) and lake number (vertical panels) combination are represented by a shaded area and the median correlation for the simulations are represented as a central line. INLA and REML results are distinguished by colour."}
+plotWEHg
+```
 
 
-
-```{r LTasREML-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [As] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r LTasREML-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [As] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotLTAsREML
 ```
 
 
-```{r LTasINLA-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [As] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r LTasINLA-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [As] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotLTAsINLA
 ```
 
 
-```{r NPasREML-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [As] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r NPasREML-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [As] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotNPAsREML
 ```
 
 
-```{r NPasINLA-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [As] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r NPasINLA-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [As] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotNPAsINLA
 ```
 
 
-```{r WEasREML-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [As] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r WEasREML-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [As] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotWEAsREML
 ```
 
 
-```{r WEasINLA-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [As] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r WEasINLA-prednum, fig.width=11, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [As] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotWEAsINLA
 ```
 
 
-```{r LThgREML-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [Hg] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r LThgREML-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [Hg] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotLTHgREML
 ```
 
 
-```{r LThgINLA-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [Hg] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r LThgINLA-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Lake Trout [Hg] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotLTHgINLA
 ```
 
 
-```{r NPhgREML-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [Hg] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r NPhgREML-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [Hg] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotNPHgREML
 ```
 
 
-```{r NPhgINLA-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [Hg] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r NPhgINLA-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Northern Pike [Hg] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotNPHgINLA
 ```
 
 
-```{r WEhgREML-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [Hg] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r WEhgREML-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [Hg] REML predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotWEHgREML
 ```
 
 
-```{r WEhgINLA-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [Hg] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance."}
+```{r WEhgINLA-prednum, fig.width=14, fig.height=8.5, fig.cap="Range of Pearson correlation scores for simulated samplings of Walleye [Hg] INLA predictions from different lake and fish number combinations. Combinations where there is inadequate performance (min correlation < 0.75 and max correlation <.8) and where performance is unstable when fish or lake numbers are increased are indicated in grey, while remaining cells are colored with light values representing better average model performance.", include=FALSE}
 plotWEHgINLA
 ```
 
