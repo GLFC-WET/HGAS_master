@@ -45,7 +45,7 @@ hg <- readxl::read_excel("./data/Ontario Inland 3 Species Hg 2008-2020-12-16.xls
 #' - VALUE_LOG: the log-transformed mercury concentration of the fish
 #' - SAMPLE_YEAR: the year of the sample collection
 
-data <- readxl::("path_to_data.xlsx") ## Update with the path to your dataset
+data <- readxl::read_excel("path_to_data.xlsx") ## Update with the path to your dataset
 
 data <- hg[sample(500, 1:nrow(hg)), ] ## This is a subsample, used as an example
 
